@@ -96,3 +96,4 @@
 - Ensure OpenRouter API key is set in Convex environment variables
 - Check Convex function logs for API call errors
 
+
