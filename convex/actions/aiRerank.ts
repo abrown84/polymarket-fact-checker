@@ -63,8 +63,6 @@ export const aiRerank = action({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://polymarket-fact-checker.vercel.app",
-          "X-Title": "Polymarket Fact Checker",
         },
         body: JSON.stringify({
           model: OPENROUTER_CHAT_MODEL,

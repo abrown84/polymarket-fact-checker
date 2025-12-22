@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { ExternalLink, TrendingUp } from "lucide-react";
 import ConfidenceBadge from "./ConfidenceBadge";
 import MetricRow from "./MetricRow";
+import MiniMarketChart from "./MiniMarketChart";
 
 interface MarketCardProps {
   market: any;
@@ -93,7 +94,7 @@ export default function MarketCard({
         </motion.p>
       )}
 
-      {/* Market Probability */}
+      {/* Market Probability with Chart */}
       {probYes !== null && probYes !== undefined && (
         <motion.div 
           className="mb-4 p-4 bg-[#111] border border-[#1a1a1a] rounded-lg"
@@ -102,11 +103,11 @@ export default function MarketCard({
           transition={{ delay: 0.2 }}
           whileHover={{ borderColor: probYes > 0.5 ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)" }}
         >
-          <div className="text-sm text-[#888] mb-1 uppercase tracking-wide">
+          <div className="text-sm text-[#888] mb-2 uppercase tracking-wide">
             Market-Implied Probability
           </div>
           <motion.div 
-            className={`text-3xl font-bold ${
+            className={`text-3xl font-bold mb-3 ${
               probYes > 0.5 ? 'text-emerald-500' : 'text-red-500'
             }`}
             initial={{ opacity: 0, scale: 0.8 }}
@@ -115,6 +116,7 @@ export default function MarketCard({
           >
             {(probYes * 100).toFixed(1)}%
           </motion.div>
+          <MiniMarketChart priceYes={probYes} volume={volume} liquidity={liquidity} />
         </motion.div>
       )}
 

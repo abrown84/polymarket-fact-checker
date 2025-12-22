@@ -50,3 +50,5 @@ export function AnimatedPercent({ value, decimals = 1, className }: AnimatedPerc
 }
 
 
+
+

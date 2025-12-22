@@ -47,8 +47,8 @@ export default function MarketRow({ market, isBest = false, onClick, compact = f
           )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h4 className="text-sm font-semibold text-white truncate">
-                {market.title || market.question}
+              <h4 className="text-sm font-semibold text-white truncate" title={market.title || market.question}>
+                {market.title || market.question || "Untitled Market"}
               </h4>
               {market.url && (
                 <a

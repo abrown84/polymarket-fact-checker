@@ -45,24 +45,46 @@ export const getEmbedding = query({
 });
 
 export const getRecentQueries = query({
-  args: { limit: v.optional(v.number()) },
+  args: { 
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+  },
   handler: async (ctx, args) => {
     const limit = args.limit || 50;
-    const queries = await ctx.db
+    
+    // Get all queries and sort them
+    let allQueries = await ctx.db
       .query("queriesLog")
       .withIndex("by_created_at")
       .order("desc")
-      .take(limit);
-    return queries;
+      .collect();
+    
+    // If cursor is provided, filter to only queries before that time
+    if (args.cursor) {
+      const cursorTime = parseInt(args.cursor);
+      allQueries = allQueries.filter((q) => q.createdAt < cursorTime);
+    }
+    
+    // Take the limit
+    const queries = allQueries.slice(0, limit);
+    
+    return {
+      queries,
+      nextCursor: queries.length === limit && queries.length > 0 
+        ? queries[queries.length - 1].createdAt.toString()
+        : null,
+    };
   },
 });
 
 export const getPopularMarkets = query({
   args: {
     limit: v.optional(v.number()),
+    offset: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 20;
+    const offset = args.offset || 0;
     
     // Get all markets
     const allMarkets = await ctx.db.query("markets").collect();
@@ -70,7 +92,7 @@ export const getPopularMarkets = query({
     console.log(`[getPopularMarkets] Total markets in database: ${allMarkets.length}`);
     
     // Sort by popularity (volume/liquidity) or by most recently ingested
-    const popularMarkets = allMarkets
+    const sortedMarkets = allMarkets
       .sort((a, b) => {
         // First, prioritize markets with volume or liquidity
         const hasVolumeA = (a.volume && a.volume > 0) || (a.liquidity && a.liquidity > 0);
@@ -92,10 +114,12 @@ export const getPopularMarkets = query({
         }
         // If no volume/liquidity difference, sort by most recently ingested
         return (b.lastIngestedAt || 0) - (a.lastIngestedAt || 0);
-      })
-      .slice(0, limit);
+      });
 
-    console.log(`[getPopularMarkets] Returning ${popularMarkets.length} markets`);
+    // Apply pagination
+    const popularMarkets = sortedMarkets.slice(offset, offset + limit);
+
+    console.log(`[getPopularMarkets] Returning ${popularMarkets.length} markets (offset: ${offset}, limit: ${limit})`);
     return popularMarkets;
   },
 });
@@ -203,6 +227,18 @@ export const getDashboardStats = query({
     const recentlyIngested = allMarkets.filter((m) => m.lastIngestedAt > sixHoursAgo);
     const marketsRecentlyIngested = recentlyIngested.length;
 
+    // Get active markets (with volume or liquidity)
+    const activeMarkets = allMarkets.filter((m) => 
+      (m.volume && m.volume > 0) || (m.liquidity && m.liquidity > 0)
+    ).length;
+
+    // Get markets with prices (check realtimePrices table)
+    const realtimePrices = await ctx.db.query("realtimePrices").collect();
+    const marketsWithPrices = new Set(realtimePrices.map((p) => p.marketId)).size;
+
+    // Calculate total volume
+    const totalVolume = allMarkets.reduce((sum, m) => sum + (m.volume || 0), 0);
+
     // Get most queried market
     const marketCounts: Record<string, number> = {};
     allQueries.forEach((q) => {
@@ -224,11 +260,53 @@ export const getDashboardStats = query({
       queriesLast24h,
       avgConfidence: avgConfidence ? Math.round(avgConfidence * 100) / 100 : null,
       marketsRecentlyIngested,
+      activeMarkets,
+      marketsWithPrices,
+      totalVolume,
       mostQueriedMarket: mostQueriedMarket ? {
         id: mostQueriedMarket.polymarketMarketId,
         title: mostQueriedMarket.title,
         queryCount: marketCounts[mostQueriedMarketId],
       } : null,
     };
+  },
+});
+
+export const getNewsByQueryHash = query({
+  args: {
+    queryHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const articles = await ctx.db
+      .query("newsArticles")
+      .withIndex("by_query_hash", (q) => q.eq("queryHash", args.queryHash))
+      .order("desc")
+      .collect();
+    
+    return articles.sort((a, b) => {
+      // Sort by relevance score first, then by recency
+      const scoreA = a.relevanceScore || 0;
+      const scoreB = b.relevanceScore || 0;
+      if (scoreB !== scoreA) {
+        return scoreB - scoreA;
+      }
+      return b.publishedAt - a.publishedAt;
+    });
+  },
+});
+
+export const getAllNewsArticles = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 1000; // Default to 1000 articles
+    const articles = await ctx.db
+      .query("newsArticles")
+      .withIndex("by_published_at")
+      .order("desc")
+      .take(limit);
+    
+    return articles;
   },
 });

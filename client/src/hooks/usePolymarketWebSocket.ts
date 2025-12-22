@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
+import { WEBSOCKET_CONSTANTS } from "../constants";
 
 // Note: This WebSocket URL may require authentication or may not be publicly accessible
 // If connection fails, the app will continue to work but without real-time updates
@@ -8,7 +9,7 @@ const WS_URL = "wss://ws-live-data.polymarket.com";
 const PING_INTERVAL = 5000; // 5 seconds
 
 // Maximum reconnection attempts before giving up
-const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_RECONNECT_ATTEMPTS = WEBSOCKET_CONSTANTS.MAX_RECONNECT_ATTEMPTS;
 
 interface WebSocketMessage {
   topic?: string;
@@ -288,8 +289,8 @@ export function usePolymarketWebSocket(options: UsePolymarketWebSocketOptions = 
         // But limit reconnection attempts to avoid infinite loops
         if (enabled && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
           reconnectAttemptsRef.current += 1;
-          // Exponential backoff: 5s, 10s, 20s, 30s, 60s
-          const delays = [5000, 10000, 20000, 30000, 60000];
+          // Exponential backoff delays
+          const delays = WEBSOCKET_CONSTANTS.RECONNECT_DELAYS;
           const reconnectDelay = delays[Math.min(reconnectAttemptsRef.current - 1, delays.length - 1)];
           
           // Only log reconnection attempts for first few tries

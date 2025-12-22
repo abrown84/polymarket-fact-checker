@@ -1,12 +1,13 @@
 import { useQuery, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { motion } from "framer-motion";
-import { TrendingUp, Activity, Clock, Flame, Search, BarChart3, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
+import { TrendingUp, Activity, Clock, Flame, Search, BarChart3, Zap, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { SkeletonStats, SkeletonMarketRow } from "./Skeleton";
 import { AnimatedNumber, AnimatedPercent } from "./AnimatedNumber";
 import MarketRow from "./MarketRow";
 import MarketIngestion from "./MarketIngestion";
+import { DATA_CONSTANTS } from "../constants";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -32,34 +33,150 @@ const cardVariants = {
   }
 };
 
+type SortField = "price" | "volume" | "liquidity" | "market";
+type SortDirection = "asc" | "desc";
+
 export default function Dashboard() {
   const stats = useQuery(api.queries.getDashboardStats);
-  const recentQueries = useQuery(api.queries.getRecentQueries, { limit: 50 });
   const getPopularMarketsWithPrices = useAction(api.actions.getPopularMarkets.getPopularMarketsWithPrices);
   const [popularMarkets, setPopularMarkets] = useState<any[]>([]);
   const [loadingMarkets, setLoadingMarkets] = useState(true);
-  const [expandedQueries, setExpandedQueries] = useState<Set<string>>(new Set());
+  const [loadingMoreMarkets, setLoadingMoreMarkets] = useState(false);
+  const [hasMoreMarkets, setHasMoreMarkets] = useState(true);
+  const [marketsOffset, setMarketsOffset] = useState(0);
+  const loadMoreMarketsRef = useRef<HTMLDivElement>(null);
+  const [sortField, setSortField] = useState<SortField>("volume");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
+  // Initial load and refresh
   useEffect(() => {
     const fetchPopularMarkets = async () => {
       try {
         setLoadingMarkets(true);
-        const result = await getPopularMarketsWithPrices({ limit: 20 });
+        setMarketsOffset(0);
+        console.log("[Dashboard] Fetching popular markets...");
+        const result = await getPopularMarketsWithPrices({ limit: DATA_CONSTANTS.MARKETS_INITIAL_LOAD, offset: 0 });
+        console.log("[Dashboard] Received result:", { 
+          marketsCount: result.markets?.length || 0, 
+          hasMore: result.hasMore,
+          error: result.error 
+        });
         setPopularMarkets(result.markets || []);
+        setHasMoreMarkets(result.hasMore !== false);
+        setMarketsOffset(result.markets?.length || 0);
       } catch (error: any) {
         console.error("Error fetching popular markets:", error);
         setPopularMarkets([]);
+        setHasMoreMarkets(false);
       } finally {
         setLoadingMarkets(false);
       }
     };
 
     fetchPopularMarkets();
-    const interval = setInterval(fetchPopularMarkets, 30 * 1000);
+    const interval = setInterval(fetchPopularMarkets, DATA_CONSTANTS.DASHBOARD_POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [getPopularMarketsWithPrices]);
 
-  if (!stats || !recentQueries) {
+  // Sort markets client-side
+  const sortedMarkets = useMemo(() => {
+    if (!popularMarkets.length) return [];
+    
+    const sorted = [...popularMarkets].sort((a, b) => {
+      let aValue: number | string = 0;
+      let bValue: number | string = 0;
+      
+      switch (sortField) {
+        case "price":
+          aValue = a.evidence?.priceYes ?? a.priceYes ?? 0;
+          bValue = b.evidence?.priceYes ?? b.priceYes ?? 0;
+          break;
+        case "volume":
+          aValue = a.evidence?.volume ?? a.volume ?? 0;
+          bValue = b.evidence?.volume ?? b.volume ?? 0;
+          break;
+        case "liquidity":
+          aValue = a.evidence?.liquidity ?? a.liquidity ?? 0;
+          bValue = b.evidence?.liquidity ?? b.liquidity ?? 0;
+          break;
+        case "market":
+          aValue = (a.question || a.title || "").toLowerCase();
+          bValue = (b.question || b.title || "").toLowerCase();
+          break;
+      }
+      
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        return sortDirection === "asc" 
+          ? aValue.localeCompare(bValue)
+          : bValue.localeCompare(aValue);
+      }
+      
+      const numA = Number(aValue) || 0;
+      const numB = Number(bValue) || 0;
+      
+      return sortDirection === "asc" ? numA - numB : numB - numA;
+    });
+    
+    return sorted;
+  }, [popularMarkets, sortField, sortDirection]);
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction if clicking the same field
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      // Set new field and default to descending
+      setSortField(field);
+      setSortDirection("desc");
+    }
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="w-3 h-3 ml-1 text-[#666]" />;
+    }
+    return sortDirection === "asc" 
+      ? <ArrowUp className="w-3 h-3 ml-1 text-emerald-500" />
+      : <ArrowDown className="w-3 h-3 ml-1 text-emerald-500" />;
+  };
+
+  // Infinite scroll for markets
+  useEffect(() => {
+    if (!hasMoreMarkets || loadingMoreMarkets || !loadMoreMarketsRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreMarkets && !loadingMoreMarkets) {
+          setLoadingMoreMarkets(true);
+          const currentOffset = marketsOffset;
+          getPopularMarketsWithPrices({ limit: DATA_CONSTANTS.MARKETS_PER_PAGE, offset: currentOffset })
+            .then((result) => {
+              setPopularMarkets(prev => [...prev, ...(result.markets || [])]);
+              setHasMoreMarkets(result.hasMore !== false);
+              setMarketsOffset(currentOffset + (result.markets?.length || 0));
+            })
+            .catch((error) => {
+              console.error("Error loading more markets:", error);
+            })
+            .finally(() => {
+              setLoadingMoreMarkets(false);
+            });
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    const currentRef = loadMoreMarketsRef.current;
+    observer.observe(currentRef);
+
+    return () => {
+      if (currentRef) {
+        observer.unobserve(currentRef);
+      }
+    };
+  }, [hasMoreMarkets, loadingMoreMarkets, marketsOffset, getPopularMarketsWithPrices]);
+
+  if (!stats) {
     return (
       <div className="space-y-6">
         <SkeletonStats />
@@ -75,23 +192,11 @@ export default function Dashboard() {
     );
   }
 
-  const formatTimeAgo = (timestamp: number) => {
-    const seconds = Math.floor((Date.now() - timestamp) / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    return `${days}d ago`;
-  };
 
   return (
     <div className="space-y-6">
-      {/* Market Ingestion Control - Only show in dev or for admins */}
-      {import.meta.env.DEV && (
-        <MarketIngestion />
-      )}
+      {/* Market Ingestion Status */}
+      <MarketIngestion />
       {/* Stats Overview - Compact Grid */}
       <motion.div 
         className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3"
@@ -190,60 +295,87 @@ export default function Dashboard() {
         </motion.div>
       </motion.div>
 
-      {/* Two Column Layout: Popular Markets + Recent Queries */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Popular Markets - Table View */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg overflow-hidden"
-        >
-          <div className="p-4 border-b border-[#1a1a1a] bg-[#111]">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <motion.div
-                  animate={{ scale: [1, 1.2, 1], rotate: [0, 5, -5, 0] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                >
-                  <Flame className="h-5 w-5 text-orange-500" />
-                </motion.div>
-                <h2 className="text-lg font-semibold text-white">Popular Markets</h2>
-              </div>
-              <div className="flex items-center gap-2">
-                <motion.div 
-                  className="w-2 h-2 bg-emerald-500 rounded-full"
-                  animate={{ opacity: [1, 0.5, 1] }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                />
-                <span className="text-xs text-[#888]">Live</span>
-              </div>
+      {/* Popular Markets */}
+      <motion.div
+        variants={cardVariants}
+        className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg overflow-hidden"
+      >
+        {/* Header */}
+        <div className="p-4 border-b border-[#1a1a1a] bg-[#111]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Flame className="h-5 w-5 text-emerald-500" />
+              <h3 className="text-lg font-semibold text-white">Popular Markets</h3>
+              <motion.div 
+                className="w-2 h-2 bg-emerald-500 rounded-full ml-1"
+                animate={{ opacity: [1, 0.5, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              />
             </div>
+            <p className="text-xs text-[#888]">Live market data</p>
           </div>
+        </div>
 
+        {/* Markets Content */}
+        <div className="p-4">
           {loadingMarkets ? (
             <div>
               {[...Array(5)].map((_, i) => (
                 <SkeletonMarketRow key={i} />
               ))}
             </div>
-          ) : popularMarkets.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-[#888]">No popular markets available</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
+                ) : popularMarkets.length === 0 ? (
+                  <div className="p-8 text-center">
+                    <p className="text-[#888] mb-2">No popular markets available</p>
+                    <p className="text-xs text-[#666]">
+                      Markets are being ingested automatically. Check back in a few minutes.
+                    </p>
+                  </div>
+                ) : (
+            <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
               <table className="w-full">
-                <thead>
+                <thead className="sticky top-0 bg-[#0a0a0a] z-10">
                   <tr className="border-b border-[#1a1a1a] bg-[#111]">
-                    <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase">Market</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase">Price</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase">Volume</th>
-                    <th className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase">Liquidity</th>
+                    <th 
+                      className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase cursor-pointer hover:text-white transition-colors select-none"
+                      onClick={() => handleSort("market")}
+                    >
+                      <div className="flex items-center">
+                        Market
+                        <SortIcon field="market" />
+                      </div>
+                    </th>
+                    <th 
+                      className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase cursor-pointer hover:text-white transition-colors select-none"
+                      onClick={() => handleSort("price")}
+                    >
+                      <div className="flex items-center">
+                        Price
+                        <SortIcon field="price" />
+                      </div>
+                    </th>
+                    <th 
+                      className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase cursor-pointer hover:text-white transition-colors select-none"
+                      onClick={() => handleSort("volume")}
+                    >
+                      <div className="flex items-center">
+                        Volume
+                        <SortIcon field="volume" />
+                      </div>
+                    </th>
+                    <th 
+                      className="text-left py-2.5 px-4 text-xs font-semibold text-[#888] uppercase cursor-pointer hover:text-white transition-colors select-none"
+                      onClick={() => handleSort("liquidity")}
+                    >
+                      <div className="flex items-center">
+                        Liquidity
+                        <SortIcon field="liquidity" />
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {popularMarkets.slice(0, 10).map((market) => (
+                  {sortedMarkets.map((market) => (
                     <MarketRow 
                       key={market.id} 
                       market={market}
@@ -252,115 +384,27 @@ export default function Dashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          )}
-        </motion.div>
-
-        {/* Recent Queries - Compact List */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-          className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg overflow-hidden"
-        >
-          <div className="p-4 border-b border-[#1a1a1a] bg-[#111]">
-            <h2 className="text-lg font-semibold text-white">Recent Queries</h2>
-            <p className="text-xs text-[#888] mt-1">Latest {recentQueries.length} fact-checks</p>
-          </div>
-          
-          {recentQueries.length === 0 ? (
-            <div className="p-8 text-center">
-              <p className="text-[#888]">No queries yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-[#1a1a1a] max-h-[600px] overflow-y-auto">
-              {recentQueries.map((query: any) => {
-                const isExpanded = expandedQueries.has(query._id);
-                const toggleExpand = () => {
-                  const newExpanded = new Set(expandedQueries);
-                  if (isExpanded) {
-                    newExpanded.delete(query._id);
-                  } else {
-                    newExpanded.add(query._id);
-                  }
-                  setExpandedQueries(newExpanded);
-                };
-
-                return (
-                  <motion.div
-                    key={query._id}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    whileHover={{ backgroundColor: "rgba(17, 17, 17, 1)" }}
-                    className="p-4 transition-colors cursor-pointer group"
-                    onClick={toggleExpand}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white mb-2 group-hover:text-emerald-400 transition-colors line-clamp-2">
-                          {query.question}
-                        </p>
-                        <div className="flex items-center gap-3 text-xs text-[#888] flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {formatTimeAgo(query.createdAt)}
-                          </span>
-                          {query.confidence !== null && query.confidence !== undefined && (
-                            <span className={`flex items-center gap-1 ${
-                              query.confidence > 0.7 ? 'text-emerald-500' : 
-                              query.confidence > 0.5 ? 'text-yellow-500' : 'text-red-500'
-                            }`}>
-                              <TrendingUp className="h-3 w-3" />
-                              {(query.confidence * 100).toFixed(0)}%
-                            </span>
-                          )}
-                          {query.bestMarketId && (
-                            <span className="text-[#666] font-mono text-xs">
-                              Market: {query.bestMarketId.slice(0, 8)}...
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Expanded Details */}
-                    {isExpanded && query.parsedClaim && (
+              {/* Infinite scroll trigger */}
+              {hasMoreMarkets && (
+                <div ref={loadMoreMarketsRef} className="py-4 text-center">
+                  {loadingMoreMarkets ? (
+                    <div className="flex items-center justify-center gap-2 text-[#888]">
                       <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.2 }}
-                        className="mt-3 pt-3 border-t border-[#1a1a1a] space-y-2"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div>
-                          <div className="text-xs text-[#888] uppercase tracking-wide mb-1">Claim</div>
-                          <div className="text-sm text-[#ccc]">{query.parsedClaim.claim}</div>
-                        </div>
-                        {query.parsedClaim.must_include && query.parsedClaim.must_include.length > 0 && (
-                          <div>
-                            <div className="text-xs text-[#888] mb-1">Must Include:</div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {query.parsedClaim.must_include.map((item: string, idx: number) => (
-                                <span
-                                  key={idx}
-                                  className="px-2 py-0.5 bg-[#111] border border-[#1a1a1a] rounded text-xs text-[#ccc]"
-                                >
-                                  {item}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </motion.div>
-                    )}
-                  </motion.div>
-                );
-              })}
+                        className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      />
+                      <span className="text-sm">Loading more markets...</span>
+                    </div>
+                  ) : (
+                    <div className="h-4" />
+                  )}
+                </div>
+              )}
             </div>
           )}
-        </motion.div>
-      </div>
+        </div>
+      </motion.div>
 
       {/* Trending Market - Full Width */}
       {stats.mostQueriedMarket && (

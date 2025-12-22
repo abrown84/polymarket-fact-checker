@@ -14,8 +14,8 @@ if (!OPENROUTER_API_KEY) {
 }
 
 /**
- * Parse a question into a structured claim using OpenAI
- * Falls back to simple heuristics if OpenAI fails
+ * Parse a question into a structured claim using OpenRouter
+ * Falls back to simple heuristics if OpenRouter fails
  */
 export const aiParseClaim = action({
   args: { question: v.string() },
@@ -31,8 +31,6 @@ export const aiParseClaim = action({
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "HTTP-Referer": "https://polymarket-fact-checker.vercel.app",
-          "X-Title": "Polymarket Fact Checker",
         },
         body: JSON.stringify({
           model: OPENROUTER_CHAT_MODEL,

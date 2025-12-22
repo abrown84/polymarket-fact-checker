@@ -66,3 +66,5 @@ In Cursor, you can now ask:
 The MCP server will handle these requests and return structured data.
 
 
+
+

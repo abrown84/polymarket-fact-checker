@@ -35,6 +35,13 @@ const internalApi = internal as {
     polymarket: { fetchGammaMarkets: any; fetchClobBook: any; fetchClobLastPrice: any };
     retrieveCandidates: { retrieveCandidates: any };
     ingestMarkets: { ingestMarkets: any };
+    retrieveNews: { retrieveNews: any };
+    retrieveTwitter: { retrieveTwitter: any };
+    retrieveReddit: { retrieveReddit: any };
+    retrieveTikTok: { retrieveTikTok: any };
+    retrieveInstagram: { retrieveInstagram: any };
+    retrieveGoogleTrends: { retrieveGoogleTrends: any };
+    kalshi: { searchKalshiMarkets: any };
   };
 };
 
@@ -67,6 +74,88 @@ interface MarketWithEvidence extends MarketCandidate, RankedMarket {
   };
 }
 
+interface NewsArticle {
+  title: string;
+  url: string;
+  source: string;
+  publishedAt: number;
+  snippet: string | null;
+  relevanceScore: number | null;
+}
+
+interface Tweet {
+  id: string;
+  text: string;
+  author: string;
+  authorUsername: string;
+  createdAt: number;
+  url: string;
+  retweetCount: number | null;
+  likeCount: number | null;
+  relevanceScore: number | null;
+}
+
+interface KalshiMarket {
+  ticker: string;
+  title: string;
+  subtitle: string | null;
+  category: string;
+  lastPrice: number | null;
+  volume: number | null;
+  url: string;
+}
+
+interface RedditPost {
+  id: string;
+  title: string;
+  text: string | null;
+  author: string;
+  subreddit: string;
+  score: number;
+  numComments: number;
+  createdAt: number;
+  url: string;
+  permalink: string;
+  relevanceScore: number | null;
+}
+
+interface TikTokVideo {
+  id: string;
+  description: string;
+  author: string;
+  authorUsername: string;
+  likeCount: number | null;
+  commentCount: number | null;
+  shareCount: number | null;
+  viewCount: number | null;
+  createdAt: number;
+  url: string;
+  relevanceScore: number | null;
+}
+
+interface InstagramPost {
+  id: string;
+  caption: string | null;
+  author: string;
+  authorUsername: string;
+  likeCount: number | null;
+  commentCount: number | null;
+  createdAt: number;
+  url: string;
+  mediaType: string;
+  relevanceScore: number | null;
+}
+
+interface GoogleTrend {
+  keyword: string;
+  searchInterest: number;
+  relatedQueries: string[];
+  relatedTopics: string[];
+  timeRange: string;
+  region: string;
+  trendScore: number | null;
+}
+
 interface FactCheckResult {
   parsedClaim: ParsedClaim;
   answer: {
@@ -77,6 +166,13 @@ interface FactCheckResult {
   };
   bestMarket: MarketWithEvidence | null;
   alternatives: MarketWithEvidence[];
+  newsArticles?: NewsArticle[]; // Relevant news articles
+  tweets?: Tweet[]; // Relevant tweets
+  redditPosts?: RedditPost[]; // Relevant Reddit posts
+  tiktokVideos?: TikTokVideo[]; // Relevant TikTok videos
+  instagramPosts?: InstagramPost[]; // Relevant Instagram posts
+  googleTrends?: GoogleTrend[]; // Google Trends data
+  kalshiMarkets?: KalshiMarket[]; // Relevant Kalshi markets
   expiringMarkets?: MarketWithEvidence[]; // Markets expiring on the queried date
   targetDate?: number; // The date parsed from the query
   debug: {
@@ -101,6 +197,94 @@ export const factCheck = action({
       internalApi.actions.aiParseClaim.aiParseClaim,
       { question: args.question }
     );
+
+    // Step 1.5: Retrieve news articles, social media posts, and Kalshi markets (in parallel for performance)
+    let newsArticles: NewsArticle[] = [];
+    let tweets: Tweet[] = [];
+    let redditPosts: RedditPost[] = [];
+    let tiktokVideos: TikTokVideo[] = [];
+    let instagramPosts: InstagramPost[] = [];
+    let googleTrends: GoogleTrend[] = [];
+    let kalshiMarkets: KalshiMarket[] = [];
+    
+    try {
+      newsArticles = await ctx.runAction(internalApi.actions.retrieveNews.retrieveNews, {
+        parsedClaim,
+        limit: 10,
+      });
+      console.log(`[factCheck] Retrieved ${newsArticles.length} news articles`);
+    } catch (error) {
+      console.error("[factCheck] Error retrieving news:", error);
+    }
+
+    try {
+      tweets = await ctx.runAction(internalApi.actions.retrieveTwitter.retrieveTwitter, {
+        parsedClaim,
+        limit: 10,
+      });
+      console.log(`[factCheck] Retrieved ${tweets.length} tweets`);
+    } catch (error) {
+      console.error("[factCheck] Error retrieving tweets:", error);
+    }
+
+    try {
+      redditPosts = await ctx.runAction(internalApi.actions.retrieveReddit.retrieveReddit, {
+        parsedClaim,
+        limit: 10,
+      });
+      console.log(`[factCheck] Retrieved ${redditPosts.length} Reddit posts`);
+    } catch (error) {
+      console.error("[factCheck] Error retrieving Reddit posts:", error);
+    }
+
+    try {
+      tiktokVideos = await ctx.runAction(internalApi.actions.retrieveTikTok.retrieveTikTok, {
+        parsedClaim,
+        limit: 10,
+      });
+      console.log(`[factCheck] Retrieved ${tiktokVideos.length} TikTok videos`);
+    } catch (error) {
+      console.error("[factCheck] Error retrieving TikTok videos:", error);
+    }
+
+    try {
+      instagramPosts = await ctx.runAction(internalApi.actions.retrieveInstagram.retrieveInstagram, {
+        parsedClaim,
+        limit: 10,
+      });
+      console.log(`[factCheck] Retrieved ${instagramPosts.length} Instagram posts`);
+    } catch (error) {
+      console.error("[factCheck] Error retrieving Instagram posts:", error);
+    }
+
+    try {
+      googleTrends = await ctx.runAction(internalApi.actions.retrieveGoogleTrends.retrieveGoogleTrends, {
+        parsedClaim,
+        limit: 10,
+      });
+      console.log(`[factCheck] Retrieved ${googleTrends.length} Google Trends`);
+    } catch (error) {
+      console.error("[factCheck] Error retrieving Google Trends:", error);
+    }
+
+    try {
+      const kalshiData = await ctx.runAction(internalApi.actions.kalshi.searchKalshiMarkets, {
+        query: parsedClaim.claim,
+        limit: 10,
+      });
+      kalshiMarkets = (kalshiData.markets || []).map((m: any) => ({
+        ticker: m.ticker,
+        title: m.title,
+        subtitle: m.subtitle,
+        category: m.category,
+        lastPrice: m.lastPrice,
+        volume: m.volume,
+        url: m.url,
+      }));
+      console.log(`[factCheck] Retrieved ${kalshiMarkets.length} Kalshi markets`);
+    } catch (error) {
+      console.error("[factCheck] Error retrieving Kalshi markets:", error);
+    }
 
     // Step 2: Retrieve candidates
     const candidates: MarketCandidate[] = await ctx.runAction(
@@ -306,8 +490,6 @@ export const factCheck = action({
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-              "HTTP-Referer": "https://polymarket-fact-checker.vercel.app",
-              "X-Title": "Polymarket Fact Checker",
             },
             body: JSON.stringify({
               model: OPENROUTER_CHAT_MODEL,
@@ -352,7 +534,19 @@ Best Available Market:
 
 ${topMarketsForAnalysis.length > 1 ? `\nOther Related Markets:\n${topMarketsForAnalysis.slice(1).map((m, i) => `${i + 1}. ${m.title} - ${m.probability} probability (${m.matchScore} match)`).join("\n")}` : ""}
 
-Provide a helpful answer to the question using this market data. Explain what these markets might indicate about the question, even though they're not perfect matches. Be transparent about the limitations but still provide useful insights.`,
+${newsArticles.length > 0 ? `\nRelevant News Articles:\n${newsArticles.slice(0, 5).map((article, i) => `${i + 1}. ${article.title} (${article.source}) - ${article.snippet || "No snippet available"}`).join("\n\n")}` : ""}
+
+${tweets.length > 0 ? `\nRelevant Tweets:\n${tweets.slice(0, 5).map((tweet, i) => `${i + 1}. @${tweet.authorUsername}: "${tweet.text.substring(0, 200)}${tweet.text.length > 200 ? "..." : ""}" (${tweet.likeCount || 0} likes)`).join("\n\n")}` : ""}
+
+${redditPosts.length > 0 ? `\nRelevant Reddit Posts:\n${redditPosts.slice(0, 5).map((post, i) => `${i + 1}. r/${post.subreddit} - "${post.title}" (${post.score} upvotes, ${post.numComments} comments)`).join("\n\n")}` : ""}
+
+${tiktokVideos.length > 0 ? `\nRelevant TikTok Videos:\n${tiktokVideos.slice(0, 5).map((video, i) => `${i + 1}. @${video.authorUsername}: "${video.description.substring(0, 150)}${video.description.length > 150 ? "..." : ""}" (${video.likeCount || 0} likes, ${video.viewCount ? (video.viewCount / 1000).toFixed(0) + "K" : "N/A"} views)`).join("\n\n")}` : ""}
+
+${instagramPosts.length > 0 ? `\nRelevant Instagram Posts:\n${instagramPosts.slice(0, 5).map((post, i) => `${i + 1}. @${post.authorUsername}: "${post.caption ? post.caption.substring(0, 150) + (post.caption.length > 150 ? "..." : "") : "No caption"}" (${post.likeCount || 0} likes)`).join("\n\n")}` : ""}
+
+${kalshiMarkets.length > 0 ? `\nRelevant Kalshi Markets:\n${kalshiMarkets.slice(0, 5).map((market, i) => `${i + 1}. ${market.title} - ${market.lastPrice !== null ? (market.lastPrice * 100).toFixed(1) + "%" : "N/A"} probability`).join("\n\n")}` : ""}
+
+Provide a helpful answer to the question using this market data, news context, social media sentiment from multiple platforms (Twitter, Reddit, TikTok, Instagram), and alternative prediction markets. Explain what these sources might indicate about the question, even though they're not perfect matches. Incorporate relevant information from all sources when available. Be transparent about the limitations but still provide useful insights.`,
                 },
               ],
               response_format: { type: "json_object" },
@@ -417,21 +611,20 @@ Provide a helpful answer to the question using this market data. Explain what th
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-              "HTTP-Referer": "https://polymarket-fact-checker.vercel.app",
-              "X-Title": "Polymarket Fact Checker",
             },
             body: JSON.stringify({
               model: OPENROUTER_CHAT_MODEL,
               messages: [
                 {
                   role: "system",
-                  content: `You are an expert fact-checker that answers questions using prediction market data from Polymarket.
+                  content: `You are an expert fact-checker that answers questions using prediction market data from Polymarket and relevant news articles.
 
 Your job is to:
-1. Answer the user's question directly based on the market data
+1. Answer the user's question directly based on the market data and news context
 2. Explain what the markets indicate about the claim
-3. Provide context about market confidence and volume
-4. Note any limitations or uncertainties
+3. Incorporate relevant news information when it adds context or credibility
+4. Provide context about market confidence and volume
+5. Note any limitations or uncertainties
 
 Output ONLY valid JSON:
 { 
@@ -442,6 +635,7 @@ Output ONLY valid JSON:
 Rules:
 - Answer the question directly, don't just describe the market
 - Use ONLY the provided market data - do NOT invent numbers
+- Incorporate news articles when they provide relevant context or support the market data
 - If multiple markets are provided, consider them all but prioritize the best match
 - Explain what the probability means (e.g., "markets suggest X% chance" or "traders are Y% confident")
 - Mention volume/liquidity to indicate market confidence
@@ -466,7 +660,21 @@ Best Matching Market:
 
 ${topMarketsForAnalysis.length > 1 ? `\nOther Relevant Markets:\n${topMarketsForAnalysis.slice(1).map((m, i) => `${i + 1}. ${m.title} - ${m.probability} probability (${m.matchScore} match)`).join("\n")}` : ""}
 
-Based on this market data, provide a direct answer to the question and explain what the markets indicate.`,
+${newsArticles.length > 0 ? `\nRelevant News Articles:\n${newsArticles.slice(0, 5).map((article, i) => `${i + 1}. ${article.title} (${article.source}) - ${article.snippet || "No snippet available"}`).join("\n\n")}` : ""}
+
+${tweets.length > 0 ? `\nRelevant Tweets:\n${tweets.slice(0, 5).map((tweet, i) => `${i + 1}. @${tweet.authorUsername}: "${tweet.text.substring(0, 200)}${tweet.text.length > 200 ? "..." : ""}" (${tweet.likeCount || 0} likes)`).join("\n\n")}` : ""}
+
+${redditPosts.length > 0 ? `\nRelevant Reddit Posts:\n${redditPosts.slice(0, 5).map((post, i) => `${i + 1}. r/${post.subreddit} - "${post.title}" (${post.score} upvotes, ${post.numComments} comments)`).join("\n\n")}` : ""}
+
+${tiktokVideos.length > 0 ? `\nRelevant TikTok Videos:\n${tiktokVideos.slice(0, 5).map((video, i) => `${i + 1}. @${video.authorUsername}: "${video.description.substring(0, 150)}${video.description.length > 150 ? "..." : ""}" (${video.likeCount || 0} likes, ${video.viewCount ? (video.viewCount / 1000).toFixed(0) + "K" : "N/A"} views)`).join("\n\n")}` : ""}
+
+${instagramPosts.length > 0 ? `\nRelevant Instagram Posts:\n${instagramPosts.slice(0, 5).map((post, i) => `${i + 1}. @${post.authorUsername}: "${post.caption ? post.caption.substring(0, 150) + (post.caption.length > 150 ? "..." : "") : "No caption"}" (${post.likeCount || 0} likes)`).join("\n\n")}` : ""}
+
+${kalshiMarkets.length > 0 ? `\nRelevant Kalshi Markets:\n${kalshiMarkets.slice(0, 5).map((market, i) => `${i + 1}. ${market.title} - ${market.lastPrice !== null ? (market.lastPrice * 100).toFixed(1) + "%" : "N/A"} probability`).join("\n\n")}` : ""}
+
+${googleTrends.length > 0 ? `\nGoogle Trends Data:\n${googleTrends.slice(0, 5).map((trend, i) => `${i + 1}. "${trend.keyword}" - Search Interest: ${trend.searchInterest}/100${trend.relatedQueries.length > 0 ? `, Related: ${trend.relatedQueries.slice(0, 3).join(", ")}` : ""}`).join("\n\n")}` : ""}
+
+Based on this market data, news context, social media sentiment from multiple platforms (Twitter, Reddit, TikTok, Instagram), Google Trends search interest data, and alternative prediction markets, provide a direct answer to the question and explain what the markets indicate. Incorporate relevant information from all sources when it adds context.`,
                 },
               ],
               response_format: { type: "json_object" },
@@ -628,6 +836,13 @@ Based on this market data, provide a direct answer to the question and explain w
         reasons: m.reasons || [],
         mismatchFlags: m.mismatchFlags || [],
       })),
+      ...(newsArticles.length > 0 && { newsArticles }),
+      ...(tweets.length > 0 && { tweets }),
+      ...(redditPosts.length > 0 && { redditPosts }),
+      ...(tiktokVideos.length > 0 && { tiktokVideos }),
+      ...(instagramPosts.length > 0 && { instagramPosts }),
+      ...(googleTrends.length > 0 && { googleTrends }),
+      ...(kalshiMarkets.length > 0 && { kalshiMarkets }),
       ...(targetDate && { targetDate }),
       ...(expiringMarkets.length > 0 && { expiringMarkets }),
       debug: {

@@ -31,11 +31,11 @@ export default function SearchBox({
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="Will the Fed cut rates by March 2026?"
           disabled={loading}
-          className="w-full px-6 py-4 pl-12 pr-32 text-lg rounded-lg border border-[#1a1a1a] bg-[#0a0a0a] text-white placeholder-[#666] focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+          className="w-full px-6 py-5 pl-14 pr-36 text-lg rounded-xl border border-[#1a1a1a] bg-gradient-to-r from-[#0a0a0a] to-[#111] text-white placeholder-[#666] focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-black/20"
         />
         
         <motion.div
-          className="absolute left-4 top-1/2 -translate-y-1/2"
+          className="absolute left-5 top-1/2 -translate-y-1/2"
           animate={loading ? { rotate: 360 } : { rotate: 0 }}
           transition={loading ? { duration: 1, repeat: Infinity, ease: "linear" } : { duration: 0.3 }}
         >
@@ -45,11 +45,11 @@ export default function SearchBox({
         <motion.button
           type="submit"
           disabled={loading || !question.trim()}
-          whileHover={loading ? {} : { opacity: 0.9 }}
+          whileHover={loading ? {} : { opacity: 0.9, scale: 1.02 }}
           whileTap={loading ? {} : { scale: 0.98 }}
           transition={{ type: "spring", stiffness: 500, damping: 25 }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-md font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-500 overflow-hidden flex items-center justify-center"
-          style={{ height: 'calc(100% - 0.55rem)' }}
+          className="absolute right-2.5 top-1/2 -translate-y-1/2 px-7 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 hover:from-emerald-400 hover:to-emerald-300 text-white rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:from-emerald-500 disabled:hover:to-emerald-400 overflow-hidden flex items-center justify-center shadow-lg shadow-emerald-500/20"
+          style={{ height: 'calc(100% - 0.75rem)' }}
         >
           <AnimatePresence mode="wait">
             {loading ? (

@@ -398,8 +398,9 @@ export const fetchPopularMarkets = action({
         return cached;
       }
 
-      // Fetch markets from Gamma API
-      const url = `${POLYMARKET_GAMMA_BASE}/markets?limit=${limit * 2}`; // Fetch more to filter
+      // Fetch markets from Gamma API - use trending/active endpoint if available, otherwise sort by volume
+      // Try to get markets sorted by volume for better "popular" results
+      const url = `${POLYMARKET_GAMMA_BASE}/markets?limit=${limit * 2}&closed=false&active=true`; // Fetch more to filter, only active markets
       
       console.log(`[fetchPopularMarkets] Fetching from ${url}`);
       

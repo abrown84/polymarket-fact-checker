@@ -50,3 +50,5 @@ If you want real-time WebSocket updates later, you can:
 3. The app will automatically use WebSocket when available
 
 
+
+
