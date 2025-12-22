@@ -41,4 +41,18 @@ export default defineSchema({
     confidence: v.union(v.number(), v.null()),
     debug: v.union(v.any(), v.null()),
   }).index("by_created_at", ["createdAt"]),
+
+  realtimePrices: defineTable({
+    marketId: v.string(),
+    tokenId: v.union(v.string(), v.null()),
+    price: v.union(v.number(), v.null()),
+    bid: v.union(v.number(), v.null()),
+    ask: v.union(v.number(), v.null()),
+    spread: v.union(v.number(), v.null()),
+    volume: v.union(v.number(), v.null()),
+    lastUpdated: v.number(),
+  })
+    .index("by_market_id", ["marketId"])
+    .index("by_token_id", ["tokenId"])
+    .index("by_last_updated", ["lastUpdated"]),
 });

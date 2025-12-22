@@ -99,3 +99,81 @@ export const ParsedClaimSchema = z.object({
 });
 
 export type ParsedClaim = z.infer<typeof ParsedClaimSchema>;
+
+/**
+ * Parse date from natural language query
+ * Handles: "tomorrow", "today", "next week", specific dates, etc.
+ */
+export function parseDateFromQuery(query: string): number | null {
+  const lowerQuery = query.toLowerCase().trim();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  // Tomorrow
+  if (lowerQuery.includes("tomorrow") || lowerQuery.includes("tomorow")) {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.getTime();
+  }
+  
+  // Today
+  if (lowerQuery.includes("today")) {
+    return today.getTime();
+  }
+  
+  // Next week
+  if (lowerQuery.includes("next week")) {
+    const nextWeek = new Date(today);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    return nextWeek.getTime();
+  }
+  
+  // This week
+  if (lowerQuery.includes("this week")) {
+    return today.getTime();
+  }
+  
+  // Try to parse specific date formats
+  // Format: "MM/DD/YYYY", "YYYY-MM-DD", "January 1, 2024", etc.
+  const datePatterns = [
+    /(\d{1,2})\/(\d{1,2})\/(\d{4})/, // MM/DD/YYYY
+    /(\d{4})-(\d{1,2})-(\d{1,2})/, // YYYY-MM-DD
+    /(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/i, // Month Day, Year
+  ];
+  
+  for (const pattern of datePatterns) {
+    const match = query.match(pattern);
+    if (match) {
+      let date: Date;
+      if (pattern === datePatterns[0]) {
+        // MM/DD/YYYY
+        date = new Date(parseInt(match[3]), parseInt(match[1]) - 1, parseInt(match[2]));
+      } else if (pattern === datePatterns[1]) {
+        // YYYY-MM-DD
+        date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+      } else {
+        // Month Day, Year
+        const monthNames = ["january", "february", "march", "april", "may", "june", 
+                           "july", "august", "september", "october", "november", "december"];
+        const monthIndex = monthNames.findIndex(m => m.toLowerCase() === match[1].toLowerCase());
+        if (monthIndex !== -1) {
+          date = new Date(parseInt(match[3]), monthIndex, parseInt(match[2]));
+        } else {
+          continue;
+        }
+      }
+      
+      if (!isNaN(date.getTime())) {
+        return date.getTime();
+      }
+    }
+  }
+  
+  // Try native Date parsing as fallback
+  const parsed = Date.parse(query);
+  if (!isNaN(parsed)) {
+    return parsed;
+  }
+  
+  return null;
+}

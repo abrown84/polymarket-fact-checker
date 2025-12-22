@@ -3,7 +3,7 @@
 import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { clamp01, ParsedClaim } from "../utils";
+import { clamp01, ParsedClaim, parseDateFromQuery } from "../utils";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_CHAT_MODEL =
@@ -20,6 +20,7 @@ const internalApi = internal as {
     getMarket: any;
     getAllEmbeddings: any;
     getRecentQueries: any;
+    getMarketsByEndDate: any;
   };
   mutations: {
     setCache: any;
@@ -76,6 +77,8 @@ interface FactCheckResult {
   };
   bestMarket: MarketWithEvidence | null;
   alternatives: MarketWithEvidence[];
+  expiringMarkets?: MarketWithEvidence[]; // Markets expiring on the queried date
+  targetDate?: number; // The date parsed from the query
   debug: {
     scoringBreakdown: Record<string, number>;
     timings: { total: number };
@@ -140,8 +143,22 @@ export const factCheck = action({
         candidates,
       });
 
+    // Fallback: If reranking returned no markets, use similarity scores directly
+    let rankedMarkets: RankedMarket[] = reranked.ranked;
+    if (rankedMarkets.length === 0 && candidates.length > 0) {
+      console.log(`[factCheck] Reranking returned no markets, using similarity fallback`);
+      rankedMarkets = candidates.map((c) => ({
+        polymarketMarketId: c.polymarketMarketId,
+        matchScore: Math.max(0, Math.min(1, c.similarity * 1.2)), // Scale similarity to 0-1
+        reasons: ["Based on embedding similarity"],
+        mismatchFlags: [],
+      }));
+      // Sort by match score
+      rankedMarkets.sort((a, b) => b.matchScore - a.matchScore);
+    }
+
     // Step 4: Fetch evidence for top 15 (more markets for better coverage)
-    const topMarkets: RankedMarket[] = reranked.ranked.slice(0, 15);
+    const topMarkets: RankedMarket[] = rankedMarkets.slice(0, 15);
     const marketsWithEvidence: MarketWithEvidence[] = [];
 
     for (const rankedMarket of topMarkets) {
@@ -151,45 +168,32 @@ export const factCheck = action({
       if (!market) continue;
 
       try {
-        // Fetch book and price
-        const [book, price]: [any, any] = await Promise.all([
-          ctx
-            .runAction(internalApi.actions.polymarket.fetchClobBook, {
-              marketId: market.polymarketMarketId,
-              tokenId: null,
-            })
-            .catch(() => null),
-          ctx
-            .runAction(internalApi.actions.polymarket.fetchClobLastPrice, {
-              marketId: market.polymarketMarketId,
-              tokenId: null,
-            })
-            .catch(() => null),
-        ]);
+        // Fetch price from WebSocket (includes bid/ask for spread calculation)
+        const price = await ctx
+          .runAction(internalApi.actions.polymarket.fetchClobLastPrice, {
+            marketId: market.polymarketMarketId,
+            tokenId: null,
+          })
+          .catch(() => null);
 
-        // Extract YES price (simplified - assumes binary market)
+        // Extract YES price and spread from WebSocket data
         let priceYes: number | null = null;
         let spread: number | null = null;
 
-        if (price && typeof price === "object" && "price" in price) {
-          priceYes = typeof price.price === "number" ? price.price : null;
-        } else if (book && typeof book === "object") {
-          // Try to extract from order book
-          if ("bids" in book && Array.isArray(book.bids) && book.bids.length > 0) {
-            const bestBid = book.bids[0];
-            if (bestBid && typeof bestBid === "object" && "price" in bestBid) {
-              priceYes = typeof bestBid.price === "number" ? bestBid.price : null;
-            }
+        if (price && typeof price === "object") {
+          // Use price field first, then bid as fallback
+          if ("price" in price && typeof price.price === "number") {
+            priceYes = price.price;
+          } else if ("bid" in price && typeof price.bid === "number") {
+            priceYes = price.bid;
           }
-          if ("asks" in book && Array.isArray(book.asks) && book.asks.length > 0) {
-            const bestAsk = book.asks[0];
-            if (bestAsk && typeof bestAsk === "object" && "price" in bestAsk) {
-              const askPrice =
-                typeof bestAsk.price === "number" ? bestAsk.price : null;
-              if (priceYes !== null && askPrice !== null) {
-                spread = askPrice - priceYes;
-              }
-            }
+          
+          // Use spread from WebSocket data if available
+          if ("spread" in price && typeof price.spread === "number") {
+            spread = price.spread;
+          } else if ("ask" in price && "bid" in price && 
+                     typeof price.ask === "number" && typeof price.bid === "number") {
+            spread = price.ask - price.bid;
           }
         }
 
@@ -223,7 +227,38 @@ export const factCheck = action({
     // Step 5: Compute confidence for best market
     const bestMarket = marketsWithEvidence[0];
     if (!bestMarket) {
-      throw new Error("No markets found after reranking");
+      // If we still have no markets, return a helpful response instead of throwing
+      console.warn(`[factCheck] No markets found after processing. Candidates: ${candidates.length}, Reranked: ${reranked.ranked.length}, WithEvidence: ${marketsWithEvidence.length}`);
+      
+      const result: FactCheckResult = {
+        parsedClaim,
+        answer: {
+          summary: "No matching Polymarket markets found for this question. This could mean: (1) No markets exist on this topic yet, (2) The markets haven't been ingested yet, or (3) The question needs to be rephrased. Try asking about a specific event, date, or topic that might have prediction markets.",
+          probYes: null,
+          confidence: 0,
+          ambiguity: "high" as const,
+        },
+        bestMarket: null,
+        alternatives: [],
+        debug: {
+          scoringBreakdown: {
+            candidatesFound: candidates.length,
+            rerankedCount: reranked.ranked.length,
+            marketsWithEvidence: marketsWithEvidence.length,
+          },
+          timings: { total: Date.now() - startTime },
+        },
+      };
+
+      await ctx.runMutation(internalApi.mutations.logQuery, {
+        question: args.question,
+        parsedClaim,
+        bestMarketId: null,
+        confidence: 0,
+        debug: result.debug,
+      });
+
+      return result;
     }
 
     const matchScore = bestMarket.matchScore || 0;
@@ -481,6 +516,100 @@ Based on this market data, provide a direct answer to the question and explain w
       }
     }
 
+    // Check if query contains a date and fetch expiring markets
+    const targetDate = parseDateFromQuery(args.question);
+    let expiringMarkets: MarketWithEvidence[] = [];
+    
+    if (targetDate) {
+      try {
+        console.log(`[factCheck] Detected date in query: ${new Date(targetDate).toISOString()}`);
+        const expiringMarketsData = await ctx.runQuery(
+          internalApi.queries.getMarketsByEndDate,
+          { targetDate, dayRange: 1 }
+        );
+        
+        // Fetch evidence for expiring markets
+        for (const market of expiringMarketsData.slice(0, 20)) {
+          try {
+            const price = await ctx
+              .runAction(internalApi.actions.polymarket.fetchClobLastPrice, {
+                marketId: market.polymarketMarketId,
+                tokenId: null,
+              })
+              .catch(() => null);
+
+            let priceYes: number | null = null;
+            let spread: number | null = null;
+
+            if (price && typeof price === "object") {
+              if ("price" in price && typeof price.price === "number") {
+                priceYes = price.price;
+              } else if ("bid" in price && typeof price.bid === "number") {
+                priceYes = price.bid;
+              }
+              
+              if ("spread" in price && typeof price.spread === "number") {
+                spread = price.spread;
+              } else if ("ask" in price && "bid" in price && 
+                         typeof price.ask === "number" && typeof price.bid === "number") {
+                spread = price.ask - price.bid;
+              }
+            }
+
+            expiringMarkets.push({
+              polymarketMarketId: market.polymarketMarketId,
+              title: market.title,
+              description: market.description,
+              endDate: market.endDate,
+              url: market.url,
+              outcomes: market.outcomes,
+              volume: market.volume,
+              liquidity: market.liquidity,
+              similarity: 0, // Not based on similarity
+              matchScore: 0,
+              reasons: [`Expires on ${new Date(market.endDate!).toLocaleDateString()}`],
+              mismatchFlags: [],
+              evidence: {
+                priceYes,
+                spread,
+                volume: market.volume,
+                liquidity: market.liquidity,
+                updatedAt: Date.now(),
+              },
+            });
+          } catch (error) {
+            console.error(`Error fetching evidence for expiring market ${market.polymarketMarketId}:`, error);
+            // Still add market without price data
+            expiringMarkets.push({
+              polymarketMarketId: market.polymarketMarketId,
+              title: market.title,
+              description: market.description,
+              endDate: market.endDate,
+              url: market.url,
+              outcomes: market.outcomes,
+              volume: market.volume,
+              liquidity: market.liquidity,
+              similarity: 0,
+              matchScore: 0,
+              reasons: [`Expires on ${new Date(market.endDate!).toLocaleDateString()}`],
+              mismatchFlags: [],
+              evidence: {
+                priceYes: null,
+                spread: null,
+                volume: market.volume,
+                liquidity: market.liquidity,
+                updatedAt: Date.now(),
+              },
+            });
+          }
+        }
+        
+        console.log(`[factCheck] Found ${expiringMarkets.length} expiring markets`);
+      } catch (error) {
+        console.error("[factCheck] Error fetching expiring markets:", error);
+      }
+    }
+
     const result: FactCheckResult = {
       parsedClaim,
       answer: {
@@ -499,6 +628,8 @@ Based on this market data, provide a direct answer to the question and explain w
         reasons: m.reasons || [],
         mismatchFlags: m.mismatchFlags || [],
       })),
+      ...(targetDate && { targetDate }),
+      ...(expiringMarkets.length > 0 && { expiringMarkets }),
       debug: {
         scoringBreakdown: {
           matchScore,

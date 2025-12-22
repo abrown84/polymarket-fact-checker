@@ -4,11 +4,11 @@ import { action, ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { retryWithBackoff } from "../utils";
+import { ClobClient } from "@polymarket/clob-client";
 
 const POLYMARKET_GAMMA_BASE =
   process.env.POLYMARKET_GAMMA_BASE || "https://gamma-api.polymarket.com";
-const POLYMARKET_CLOB_BASE =
-  process.env.POLYMARKET_CLOB_BASE || "https://clob.polymarket.com";
+const POLYMARKET_CLOB_BASE = "https://clob.polymarket.com";
 
 // Cache TTLs (in milliseconds)
 const GAMMA_MARKETS_TTL = 6 * 60 * 60 * 1000; // 6 hours
@@ -23,6 +23,7 @@ const internalApi = internal as {
     getMarket: any;
     getAllEmbeddings: any;
     getRecentQueries: any;
+    getRealtimePrice: any;
   };
   mutations: {
     setCache: any;
@@ -95,7 +96,7 @@ export const fetchGammaMarkets = action({
         console.log(`[fetchGammaMarkets] Bypassing cache as requested`);
       }
 
-      const limit = args.limit || 100;
+      const limit = args.limit || 1000; // Increased from 100 to fetch more markets per request
       // Use the endpoint that filters for active markets at the API level
       // This is more efficient than fetching all markets and filtering client-side
       // Based on endpoint testing: /markets?closed=false returns only active markets
@@ -155,7 +156,17 @@ export const fetchGammaMarkets = action({
       
       console.log(`[fetchGammaMarkets] Processed ${Array.isArray(responseData.data) ? responseData.data.length : 0} markets`);
       
-      await setCache(ctx, cacheKey, responseData, GAMMA_MARKETS_TTL);
+      // Only cache if response is small enough (under 800KB to be safe)
+      // Large responses (like 1000 markets) can exceed Convex's 1 MiB limit
+      const responseSize = JSON.stringify(responseData).length;
+      const maxCacheSize = 800 * 1024; // 800KB
+      
+      if (responseSize < maxCacheSize) {
+        await setCache(ctx, cacheKey, responseData, GAMMA_MARKETS_TTL);
+      } else {
+        console.log(`[fetchGammaMarkets] Response too large (${(responseSize / 1024).toFixed(2)}KB), skipping cache`);
+      }
+      
       return responseData;
     } catch (error) {
       console.error(`[fetchGammaMarkets] Error:`, error);
@@ -165,7 +176,7 @@ export const fetchGammaMarkets = action({
 });
 
 /**
- * Fetch order book from CLOB API
+ * Fetch order book using CLOB client (REST API) with WebSocket fallback
  */
 export const fetchClobBook = action({
   args: {
@@ -178,74 +189,83 @@ export const fetchClobBook = action({
       throw new Error("Either marketId or tokenId must be provided");
     }
 
-    const cacheKey = `clob:book:${identifier}`;
-    const cached = await getCache(ctx, cacheKey);
-    if (cached) {
-      return cached;
+    // First, try WebSocket real-time data
+    if (args.marketId) {
+      try {
+        const realtimePrice = await ctx.runQuery(internalApi.queries.getRealtimePrice, {
+          marketId: args.marketId,
+        });
+
+        if (realtimePrice) {
+          // Construct minimal order book from bid/ask
+          const bids = realtimePrice.bid !== null ? [{ price: realtimePrice.bid, size: 1 }] : [];
+          const asks = realtimePrice.ask !== null ? [{ price: realtimePrice.ask, size: 1 }] : [];
+
+          return {
+            bids,
+            asks,
+            spread: realtimePrice.spread,
+            source: "realtime",
+            timestamp: realtimePrice.lastUpdated,
+          };
+        }
+      } catch (error) {
+        console.log(`[fetchClobBook] Real-time data not available, trying CLOB client`);
+      }
     }
 
-    // Try marketId first, then tokenId
-    const url = args.marketId
-      ? `${POLYMARKET_CLOB_BASE}/book?market=${args.marketId}`
-      : `${POLYMARKET_CLOB_BASE}/book?token_id=${args.tokenId}`;
-
+    // Fallback to CLOB client REST API
     try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        signal: AbortSignal.timeout(5000), // 5s timeout
-      });
+      const clobClient = new ClobClient(POLYMARKET_CLOB_BASE, 137);
+      const tokenIdToUse = args.tokenId || args.marketId;
       
-      // 400 errors are client errors (invalid market ID) - don't retry, just return null
-      if (response.status === 400) {
-        console.log(`[fetchClobBook] Market ${identifier} not found or invalid (400)`);
-        return null;
-      }
-      
-      if (!response.ok) {
-        // For other errors, use retry logic
-        const responseWithRetry = await retryWithBackoff(async () => {
-          const res = await fetch(url, {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            signal: AbortSignal.timeout(5000),
-          });
-          if (!res.ok && res.status !== 400) {
-            throw new Error(`CLOB API error: ${res.status} ${res.statusText}`);
-          }
-          return res;
-        });
+      if (tokenIdToUse) {
+        const orderBook = await clobClient.getOrderBook(tokenIdToUse);
         
-        if (!responseWithRetry.ok) {
-          return null;
+        // Calculate spread from best bid and ask
+        const bids = orderBook?.bids || [];
+        const asks = orderBook?.asks || [];
+        let spread: number | null = null;
+        
+        if (bids.length > 0 && asks.length > 0) {
+          const bestBidPrice = bids[0]?.price;
+          const bestAskPrice = asks[0]?.price;
+          const bestBid = typeof bestBidPrice === 'string' ? parseFloat(bestBidPrice) : (bestBidPrice || 0);
+          const bestAsk = typeof bestAskPrice === 'string' ? parseFloat(bestAskPrice) : (bestAskPrice || 0);
+          
+          if (bestBid > 0 && bestAsk > 0 && !isNaN(bestBid) && !isNaN(bestAsk)) {
+            spread = bestAsk - bestBid;
+          }
         }
         
-        const data = await responseWithRetry.json();
-        await setCache(ctx, cacheKey, data, CLOB_BOOK_TTL);
-        return data;
+        return {
+          bids,
+          asks,
+          spread,
+          source: "clob_client",
+          timestamp: Date.now(),
+        };
       }
-
-      const data = await response.json();
-      await setCache(ctx, cacheKey, data, CLOB_BOOK_TTL);
-      return data;
     } catch (error: any) {
-      // Network errors or timeouts - log but don't throw
-      if (error.message?.includes("400")) {
-        console.log(`[fetchClobBook] Market ${identifier} invalid or not found`);
-        return null;
+      // 404 errors are expected when orderbooks don't exist yet - don't log as errors
+      const is404 = error?.status === 404 || error?.response?.status === 404 || 
+                    error?.message?.includes('404') || error?.message?.includes('No orderbook');
+      
+      if (!is404) {
+        // Only log non-404 errors
+        console.log(`[fetchClobBook] CLOB client error for ${identifier}:`, error.message);
       }
-      console.log(`[fetchClobBook] Error fetching book for ${identifier}:`, error.message);
-      return null;
+      // Silently handle 404s - it's normal for markets to not have orderbooks yet
     }
+
+    // No data available
+    console.log(`[fetchClobBook] No order book data available for ${identifier}`);
+    return null;
   },
 });
 
 /**
- * Fetch last price from CLOB API
+ * Fetch last price using CLOB client (REST API) with WebSocket fallback
  */
 export const fetchClobLastPrice = action({
   args: {
@@ -258,73 +278,92 @@ export const fetchClobLastPrice = action({
       throw new Error("Either marketId or tokenId must be provided");
     }
 
-    const cacheKey = `clob:price:${identifier}`;
-    const cached = await getCache(ctx, cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const url = args.marketId
-      ? `${POLYMARKET_CLOB_BASE}/price?market=${args.marketId}`
-      : `${POLYMARKET_CLOB_BASE}/price?token_id=${args.tokenId}`;
-
-    try {
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        signal: AbortSignal.timeout(5000),
-      });
-      
-      // 400 errors are client errors (invalid market ID) - don't retry, just return null
-      if (response.status === 400) {
-        console.log(`[fetchClobLastPrice] Market ${identifier} not found or invalid (400)`);
-        return null;
-      }
-      
-      if (!response.ok) {
-        // For other errors, use retry logic
-        const responseWithRetry = await retryWithBackoff(async () => {
-          const res = await fetch(url, {
-            method: "GET",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            signal: AbortSignal.timeout(5000),
-          });
-          if (!res.ok && res.status !== 400) {
-            throw new Error(`CLOB API error: ${res.status} ${res.statusText}`);
-          }
-          return res;
+    // First, try WebSocket real-time data
+    if (args.marketId) {
+      try {
+        const realtimePrice = await ctx.runQuery(internalApi.queries.getRealtimePrice, {
+          marketId: args.marketId,
         });
-        
-        if (!responseWithRetry.ok) {
-          return null;
-        }
-        
-        const data = await responseWithRetry.json();
-        await setCache(ctx, cacheKey, data, CLOB_PRICE_TTL);
-        return data;
-      }
 
-      const data = await response.json();
-      await setCache(ctx, cacheKey, data, CLOB_PRICE_TTL);
-      return data;
-    } catch (error: any) {
-      // Network errors or timeouts - log but don't throw
-      if (error.message?.includes("400")) {
-        console.log(`[fetchClobLastPrice] Market ${identifier} invalid or not found`);
-        return null;
+        if (realtimePrice && realtimePrice.price !== null) {
+          console.log(`[fetchClobLastPrice] Using real-time price for ${identifier}: ${realtimePrice.price}`);
+          return {
+            price: realtimePrice.price,
+            bid: realtimePrice.bid,
+            ask: realtimePrice.ask,
+            spread: realtimePrice.spread,
+            volume: realtimePrice.volume,
+            source: "realtime",
+            timestamp: realtimePrice.lastUpdated,
+          };
+        }
+      } catch (error) {
+        console.log(`[fetchClobLastPrice] Real-time price not available, trying CLOB client`);
       }
-      console.log(`[fetchClobLastPrice] Error fetching price for ${identifier}:`, error.message);
-      return null;
     }
+
+    // Fallback to CLOB client REST API - use order book instead of price endpoint
+    try {
+      const clobClient = new ClobClient(POLYMARKET_CLOB_BASE, 137); // 137 = Polygon chain ID
+      const tokenIdToUse = args.tokenId || args.marketId;
+      
+      if (tokenIdToUse) {
+        // Use order book to get bid/ask prices (more reliable than price endpoint)
+        const orderBook = await clobClient.getOrderBook(tokenIdToUse);
+        
+        if (orderBook && (orderBook.bids?.length > 0 || orderBook.asks?.length > 0)) {
+          // Get best bid and ask
+          const bids = orderBook.bids || [];
+          const asks = orderBook.asks || [];
+          
+          const bestBidPrice = bids.length > 0 ? (typeof bids[0]?.price === 'string' ? parseFloat(bids[0].price) : (bids[0]?.price || 0)) : null;
+          const bestAskPrice = asks.length > 0 ? (typeof asks[0]?.price === 'string' ? parseFloat(asks[0].price) : (asks[0]?.price || 0)) : null;
+          
+          // Calculate mid price from bid/ask
+          let price: number | null = null;
+          if (bestBidPrice !== null && bestAskPrice !== null && bestBidPrice > 0 && bestAskPrice > 0) {
+            price = (bestBidPrice + bestAskPrice) / 2;
+          } else if (bestBidPrice !== null && bestBidPrice > 0) {
+            price = bestBidPrice;
+          } else if (bestAskPrice !== null && bestAskPrice > 0) {
+            price = bestAskPrice;
+          }
+          
+          const spread = (bestBidPrice !== null && bestAskPrice !== null && bestBidPrice > 0 && bestAskPrice > 0)
+            ? bestAskPrice - bestBidPrice
+            : null;
+          
+          return {
+            price,
+            bid: bestBidPrice,
+            ask: bestAskPrice,
+            spread,
+            source: "clob_client",
+            timestamp: Date.now(),
+          };
+        }
+      }
+    } catch (error: any) {
+      // 404 errors are expected when orderbooks don't exist yet - don't log as errors
+      const is404 = error?.status === 404 || error?.response?.status === 404 || 
+                    error?.message?.includes('404') || error?.message?.includes('No orderbook');
+      
+      if (!is404) {
+        // Only log non-404 errors
+        console.log(`[fetchClobLastPrice] CLOB client error for ${identifier}:`, error.message);
+      }
+      // Silently handle 404s - it's normal for markets to not have orderbooks yet
+    }
+
+    // No data available (this is normal for markets without orderbooks)
+    // Don't log - it's expected behavior, not an error
+    return null;
   },
 });
 
 /**
- * Fetch recent trades from CLOB API (optional)
+ * Fetch recent trades - Not available via WebSocket
+ * Returns empty array as trades are not provided by WebSocket API
  */
 export const fetchRecentTrades = action({
   args: {
@@ -333,45 +372,9 @@ export const fetchRecentTrades = action({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const identifier = args.marketId || args.tokenId;
-    if (!identifier) {
-      return [];
-    }
-
-    const cacheKey = `clob:trades:${identifier}:${args.limit || 10}`;
-    const cached = await getCache(ctx, cacheKey);
-    if (cached) {
-      return cached;
-    }
-
-    const limit = args.limit || 10;
-    const url = args.marketId
-      ? `${POLYMARKET_CLOB_BASE}/trades?market=${args.marketId}&limit=${limit}`
-      : `${POLYMARKET_CLOB_BASE}/trades?token_id=${args.tokenId}&limit=${limit}`;
-
-    try {
-      const response = await retryWithBackoff(async () => {
-        const res = await fetch(url, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          signal: AbortSignal.timeout(5000),
-        });
-        if (!res.ok) {
-          throw new Error(`CLOB API error: ${res.status} ${res.statusText}`);
-        }
-        return res;
-      });
-
-      const data = await response.json();
-      await setCache(ctx, cacheKey, data, CLOB_TRADES_TTL);
-      return Array.isArray(data) ? data : [];
-    } catch (error) {
-      // If trades endpoint doesn't exist or fails, return empty array
-      console.warn("Failed to fetch trades:", error);
-      return [];
-    }
+    // WebSocket doesn't provide trade history
+    // Return empty array
+    return [];
   },
 });
 
@@ -484,8 +487,15 @@ export const fetchPopularMarkets = action({
         fetchedAt: Date.now(),
       };
 
-      // Cache for 5 minutes
-      await setCache(ctx, cacheKey, result, 5 * 60 * 1000);
+      // Only cache if response is small enough (under 800KB to be safe)
+      const cacheSize = JSON.stringify(result).length;
+      const maxCacheSize = 800 * 1024; // 800KB
+      
+      if (cacheSize < maxCacheSize) {
+        await setCache(ctx, cacheKey, result, 5 * 60 * 1000); // 5 minutes
+      } else {
+        console.log(`[fetchPopularMarkets] Response too large (${(cacheSize / 1024).toFixed(2)}KB), skipping cache`);
+      }
       
       console.log(`[fetchPopularMarkets] Returned ${markets.length} popular markets`);
       return result;

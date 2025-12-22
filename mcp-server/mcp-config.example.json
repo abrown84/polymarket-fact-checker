@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "polymarket": {
+      "command": "node",
+      "args": ["C:\\Users\\alexb\\Desktop\\Programming\\Apps\\polymarket-fact-checker\\mcp-server\\dist\\index.js"],
+      "env": {}
+    }
+  }
+}
+
+

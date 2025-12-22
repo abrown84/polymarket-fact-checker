@@ -7,9 +7,14 @@ import SearchBox from "./components/SearchBox";
 import ResultCard from "./components/ResultCard";
 import Dashboard from "./components/Dashboard";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, BarChart3 } from "lucide-react";
+import { Search, BarChart3, Info } from "lucide-react";
 
 type View = "search" | "dashboard";
+
+const tabs = [
+  { id: "search" as View, label: "Search", icon: Search },
+  { id: "dashboard" as View, label: "Dashboard", icon: BarChart3 },
+];
 
 function AppContent() {
   const [view, setView] = useState<View>("search");
@@ -41,80 +46,135 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-[#000000]">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="mb-8"
-        >
-          <h1 className="text-4xl font-bold text-center mb-2 text-white">
-            Polymarket Fact Checker
-          </h1>
-          <p className="text-center text-[#888] mb-6">
-            Ask a question and get evidence-grounded answers from prediction markets
-          </p>
+      {/* Compact Header */}
+      <div className="border-b border-[#1a1a1a] bg-[#0a0a0a] sticky top-0 z-50 backdrop-blur-sm bg-opacity-95">
+        <div className="container mx-auto px-4 py-4 max-w-[1800px]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-white">
+                Polymarket Fact Checker
+              </h1>
+              <div className="hidden md:flex items-center gap-2 text-xs text-[#666]">
+                <Info className="w-3.5 h-3.5" />
+                <span>Evidence-grounded answers from prediction markets</span>
+              </div>
+            </div>
 
-          {/* Navigation Tabs - Polymarket Style */}
-          <div className="flex justify-center gap-2 bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-1 inline-flex mx-auto">
-            <button
-              onClick={() => setView("search")}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all ${
-                view === "search"
-                  ? "bg-[#111] text-white border border-[#2a2a2a]"
-                  : "text-[#888] hover:text-white"
-              }`}
-            >
-              <Search className="h-4 w-4" />
-              Search
-            </button>
-            <button
-              onClick={() => setView("dashboard")}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all ${
-                view === "dashboard"
-                  ? "bg-[#111] text-white border border-[#2a2a2a]"
-                  : "text-[#888] hover:text-white"
-              }`}
-            >
-              <BarChart3 className="h-4 w-4" />
-              Dashboard
-            </button>
+            {/* Navigation Tabs */}
+            <div className="relative flex bg-[#111] border border-[#1a1a1a] rounded-lg p-1">
+              <motion.div
+                className="absolute inset-y-1 bg-[#0a0a0a] border border-[#2a2a2a] rounded-md"
+                initial={false}
+                animate={{
+                  x: view === "search" ? 4 : 108,
+                  width: view === "search" ? 100 : 120,
+                }}
+                transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              />
+              
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setView(tab.id)}
+                  className={`relative z-10 flex items-center gap-2 px-6 py-2 rounded-md font-medium transition-colors text-sm ${
+                    view === tab.id
+                      ? "text-white"
+                      : "text-[#888] hover:text-white"
+                  }`}
+                >
+                  <tab.icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
-        </motion.div>
+        </div>
+      </div>
 
-        {/* Content */}
+      {/* Main Content - Full Width */}
+      <div className="container mx-auto px-4 py-6 max-w-[1800px]">
         <AnimatePresence mode="wait">
           {view === "search" ? (
             <motion.div
               key="search"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-4xl mx-auto"
+              initial={{ opacity: 0, filter: "blur(10px)", y: 10 }}
+              animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
+              exit={{ opacity: 0, filter: "blur(10px)", y: -10 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
             >
-              <SearchBox
-                question={question}
-                setQuestion={setQuestion}
-                onSubmit={handleSubmit}
-                loading={loading}
-              />
+              <div className="max-w-4xl mx-auto mb-8">
+                <SearchBox
+                  question={question}
+                  setQuestion={setQuestion}
+                  onSubmit={handleSubmit}
+                  loading={loading}
+                />
+              </div>
 
               <AnimatePresence mode="wait">
                 {loading && (
                   <motion.div
                     key="loading"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="mt-8"
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex flex-col items-center py-16"
                   >
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-                      <span className="text-[#888]">
-                        Analyzing question and searching markets...
-                      </span>
+                    <div className="relative">
+                      <motion.div
+                        className="absolute inset-0 rounded-full bg-emerald-500/20"
+                        animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
+                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                      />
+                      <motion.div
+                        className="relative w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center"
+                        animate={{ scale: [1, 1.05, 1] }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                      >
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+                        >
+                          <Search className="w-7 h-7 text-emerald-500" />
+                        </motion.div>
+                      </motion.div>
+                    </div>
+                    
+                    <motion.div
+                      className="mt-6 text-center"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.2 }}
+                    >
+                      <motion.p
+                        className="text-white font-medium"
+                        animate={{ opacity: [0.7, 1, 0.7] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                      >
+                        Searching prediction markets...
+                      </motion.p>
+                      <p className="text-[#666] text-sm mt-1">
+                        Analyzing your question and finding relevant markets
+                      </p>
+                    </motion.div>
+
+                    <div className="flex gap-1.5 mt-6">
+                      {[0, 1, 2].map((i) => (
+                        <motion.div
+                          key={i}
+                          className="w-2 h-2 rounded-full bg-emerald-500"
+                          animate={{ 
+                            scale: [1, 1.3, 1],
+                            opacity: [0.3, 1, 0.3]
+                          }}
+                          transition={{ 
+                            duration: 1, 
+                            repeat: Infinity,
+                            delay: i * 0.2
+                          }}
+                        />
+                      ))}
                     </div>
                   </motion.div>
                 )}
@@ -122,23 +182,27 @@ function AppContent() {
                 {result && !loading && (
                   <motion.div
                     key="result"
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    transition={{ duration: 0.3 }}
-                    className="mt-8"
+                    initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
+                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                    exit={{ opacity: 0, y: -20, filter: "blur(10px)" }}
+                    transition={{ duration: 0.3, ease: "easeOut" }}
                   >
                     {result.error ? (
-                      <div className="bg-[#1a0a0a] border border-red-900/50 rounded-lg p-4">
+                      <motion.div 
+                        className="bg-[#1a0a0a] border border-red-900/50 rounded-lg p-4"
+                        initial={{ scale: 0.95 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 25 }}
+                      >
                         <p className="text-red-400">{result.error}</p>
-                      </div>
+                      </motion.div>
                     ) : (
                       <>
                         {import.meta.env.DEV && (
                           <div className="mb-4 flex justify-end">
                             <button
                               onClick={() => setShowDebug(!showDebug)}
-                              className="text-sm text-[#888] hover:text-white transition-colors"
+                              className="text-sm text-[#888] hover:text-white transition-colors px-3 py-1.5 rounded border border-[#1a1a1a] hover:border-[#2a2a2a]"
                             >
                               {showDebug ? "Hide" : "Show"} Debug
                             </button>
@@ -154,10 +218,10 @@ function AppContent() {
           ) : (
             <motion.div
               key="dashboard"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
+              initial={{ opacity: 0, filter: "blur(10px)", y: 10 }}
+              animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
+              exit={{ opacity: 0, filter: "blur(10px)", y: -10 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
             >
               <Dashboard />
             </motion.div>

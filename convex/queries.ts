@@ -100,10 +100,75 @@ export const getPopularMarkets = query({
   },
 });
 
+/**
+ * Get markets expiring on a specific date (within a day range)
+ */
+export const getMarketsByEndDate = query({
+  args: {
+    targetDate: v.number(), // Timestamp for the target date
+    dayRange: v.optional(v.number()), // Range in days (default: 1 day)
+  },
+  handler: async (ctx, args) => {
+    const dayRange = args.dayRange || 1;
+    const targetDate = args.targetDate;
+    
+    // Calculate start and end of the day range
+    const startOfDay = new Date(targetDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    const startTimestamp = startOfDay.getTime();
+    
+    const endOfDay = new Date(targetDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    endOfDay.setDate(endOfDay.getDate() + (dayRange - 1));
+    const endTimestamp = endOfDay.getTime();
+    
+    console.log(`[getMarketsByEndDate] Looking for markets between ${new Date(startTimestamp).toISOString()} and ${new Date(endTimestamp).toISOString()}`);
+    
+    // Get all markets and filter by endDate
+    const allMarkets = await ctx.db.query("markets").collect();
+    
+    const expiringMarkets = allMarkets
+      .filter((market) => {
+        if (!market.endDate) return false;
+        return market.endDate >= startTimestamp && market.endDate <= endTimestamp;
+      })
+      .sort((a, b) => {
+        // Sort by endDate (soonest first), then by volume
+        if (a.endDate && b.endDate && a.endDate !== b.endDate) {
+          return a.endDate - b.endDate;
+        }
+        const volumeA = a.volume || 0;
+        const volumeB = b.volume || 0;
+        return volumeB - volumeA;
+      });
+    
+    console.log(`[getMarketsByEndDate] Found ${expiringMarkets.length} markets expiring in range`);
+    return expiringMarkets;
+  },
+});
+
 export const getAllMarkets = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db.query("markets").collect();
+  },
+});
+
+export const getRealtimePrice = query({
+  args: {
+    marketId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const price = await ctx.db
+      .query("realtimePrices")
+      .withIndex("by_market_id", (q) => q.eq("marketId", args.marketId))
+      .first();
+    
+    // Only return if updated within last 5 minutes (real-time data should be fresh)
+    if (price && price.lastUpdated > Date.now() - 5 * 60 * 1000) {
+      return price;
+    }
+    return null;
   },
 });
 

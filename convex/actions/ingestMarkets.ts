@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 1000; // Maximum batch size for processing markets
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -301,17 +301,17 @@ export const ingestMarkets = action({
             existingMarket.title !== title || // Title changed
             existingMarket.description !== description; // Description changed
 
+        // Generate embeddings (with timeout to avoid blocking)
         if (needsEmbedding) {
           try {
-            console.log(`[ingestMarkets] Generating embedding for market ${i + 1}/${markets.length}: ${title.substring(0, 50)}...`);
-            // Generate embedding with timeout
+            // Generate embedding with timeout - but don't wait too long
             const embedding: number[] = await Promise.race([
               ctx.runAction(
                 internalApi.actions.aiEmbed.embedText,
                 { text: embeddingText }
               ),
               new Promise<never>((_, reject) => 
-                setTimeout(() => reject(new Error("Embedding generation timeout after 30s")), 30000)
+                setTimeout(() => reject(new Error("Embedding generation timeout after 20s")), 20000)
               )
             ]);
 
@@ -326,6 +326,7 @@ export const ingestMarkets = action({
           } catch (embedError) {
             console.error(`[ingestMarkets] Failed to generate embedding for market ${polymarketMarketId}:`, embedError);
             // Continue without embedding - market is still saved
+            // This allows us to process more markets even if some embeddings fail
           }
         }
         } catch (error) {

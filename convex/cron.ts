@@ -11,11 +11,20 @@ const internalApi = internal as {
 const crons = cronJobs();
 
 // Ingest markets every 6 hours
+// Process 1000 markets per run (will continue with cursor if more available)
 crons.interval(
   "ingest-markets",
   { hours: 6 },
   internalApi.actions.ingestMarkets.ingestMarkets,
-  { cursor: null }
+  { cursor: null, limit: 1000 }
+);
+
+// Additional frequent ingestion for new markets (every 2 hours)
+crons.interval(
+  "ingest-markets-frequent",
+  { hours: 2 },
+  internalApi.actions.ingestMarkets.ingestMarkets,
+  { cursor: null, limit: 1000 }
 );
 
 // Refresh hot markets every 2 minutes (markets that appeared in last 50 queries)

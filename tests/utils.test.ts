@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cosineSimilarity, clamp01, hashString } from "./utils";
+import { cosineSimilarity, clamp01, hashString } from "../convex/utils";
 
 describe("utils", () => {
   describe("cosineSimilarity", () => {
@@ -53,3 +53,5 @@ describe("utils", () => {
     });
   });
 });
+
+
