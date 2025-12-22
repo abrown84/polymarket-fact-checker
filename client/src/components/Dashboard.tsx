@@ -1,9 +1,8 @@
 import { useQuery, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { motion } from "framer-motion";
-import { TrendingUp, DollarSign, Activity, Clock, ExternalLink, Flame, Search, BarChart3, Zap, ChevronDown } from "lucide-react";
+import { TrendingUp, Activity, Clock, Flame, Search, BarChart3, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
-import MiniMarketChart from "./MiniMarketChart";
 import { SkeletonStats, SkeletonMarketRow } from "./Skeleton";
 import { AnimatedNumber, AnimatedPercent } from "./AnimatedNumber";
 import MarketRow from "./MarketRow";
@@ -17,19 +16,6 @@ const containerVariants = {
       staggerChildren: 0.05,
       delayChildren: 0.1
     }
-  }
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, x: -20 },
-  show: { 
-    opacity: 1, 
-    x: 0, 
-    transition: { 
-      type: "spring", 
-      stiffness: 300, 
-      damping: 24 
-    } 
   }
 };
 
@@ -52,9 +38,7 @@ export default function Dashboard() {
   const getPopularMarketsWithPrices = useAction(api.actions.getPopularMarkets.getPopularMarketsWithPrices);
   const [popularMarkets, setPopularMarkets] = useState<any[]>([]);
   const [loadingMarkets, setLoadingMarkets] = useState(true);
-  const [expandedMarkets, setExpandedMarkets] = useState<Set<string>>(new Set());
   const [expandedQueries, setExpandedQueries] = useState<Set<string>>(new Set());
-  const [selectedQuery, setSelectedQuery] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchPopularMarkets = async () => {
@@ -90,12 +74,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const formatCurrency = (value: number) => {
-    if (value >= 1000000) return `$${(value / 1000000).toFixed(2)}M`;
-    if (value >= 1000) return `$${(value / 1000).toFixed(2)}K`;
-    return `$${value.toFixed(2)}`;
-  };
 
   const formatTimeAgo = (timestamp: number) => {
     const seconds = Math.floor((Date.now() - timestamp) / 1000);
@@ -302,10 +280,8 @@ export default function Dashboard() {
                   const newExpanded = new Set(expandedQueries);
                   if (isExpanded) {
                     newExpanded.delete(query._id);
-                    setSelectedQuery(null);
                   } else {
                     newExpanded.add(query._id);
-                    setSelectedQuery(query._id);
                   }
                   setExpandedQueries(newExpanded);
                 };

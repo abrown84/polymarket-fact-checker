@@ -24,8 +24,6 @@ export default function SearchBox({
     >
       <motion.div 
         className="relative"
-        whileFocusWithin={{ scale: 1.01 }}
-        transition={{ type: "spring", stiffness: 300, damping: 25 }}
       >
         <motion.input
           type="text"
