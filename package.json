@@ -11,7 +11,7 @@
     "deploy": "npm run deploy:convex && npm run deploy:vercel",
     "deploy:convex": "convex deploy",
     "deploy:vercel": "cd client && vercel deploy",
-    "test": "vitest"
+    "test": "vitest run"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.1.1",
