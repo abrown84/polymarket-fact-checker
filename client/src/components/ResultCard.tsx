@@ -279,15 +279,15 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
       {dataSources.length > 0 && (
         <motion.div variants={itemVariants} className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl overflow-hidden">
           {/* Header with View Toggle */}
-          <div className="p-5 border-b border-[#1a1a1a] bg-[#111]">
-            <div className="flex items-center justify-between">
+          <div className="p-4 md:p-5 border-b border-[#1a1a1a] bg-[#111]">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold text-white">All Data Sources</h2>
                 <p className="text-sm text-[#888] mt-1">
                   {dataSources.reduce((sum, ds) => sum + ds.count, 0)} items across {dataSources.length} source{dataSources.length !== 1 ? "s" : ""}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 self-start md:self-auto">
                 <button
                   onClick={() => setViewMode("grid")}
                   className={`p-2 rounded-lg transition-colors ${

@@ -302,7 +302,7 @@ export default function Dashboard() {
       >
         {/* Header */}
         <div className="p-4 border-b border-[#1a1a1a] bg-[#111]">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <Flame className="h-5 w-5 text-emerald-500" />
               <h3 className="text-lg font-semibold text-white">Popular Markets</h3>

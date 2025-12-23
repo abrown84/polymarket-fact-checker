@@ -86,15 +86,15 @@ function AppContent() {
     <div className="min-h-screen bg-gradient-to-br from-[#000000] via-[#0a0a0a] to-[#000000]">
       {/* Enhanced Header */}
       <div className="border-b border-[#1a1a1a] bg-gradient-to-r from-[#0a0a0a] to-[#111] sticky top-0 z-50 backdrop-blur-md bg-opacity-95 shadow-lg shadow-black/20">
-        <div className="container mx-auto px-4 py-5 max-w-[1800px]">
-          <div className="flex items-center justify-between">
+        <div className="container mx-auto px-4 py-3 md:py-5 max-w-[1800px]">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-blue-500/20 border border-emerald-500/30 flex items-center justify-center">
-                  <BarChart3 className="w-6 h-6 text-emerald-400" />
+                <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-blue-500/20 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
+                  <BarChart3 className="w-5 h-5 md:w-6 md:h-6 text-emerald-400" />
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-white to-[#ddd] bg-clip-text text-transparent">
+                  <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-white to-[#ddd] bg-clip-text text-transparent">
                     Polymarket Fact Checker
                   </h1>
                   <div className="hidden md:flex items-center gap-2 text-xs text-[#666] mt-0.5">
@@ -108,7 +108,7 @@ function AppContent() {
             {/* Enhanced Navigation Tabs */}
             <div 
               ref={containerRef}
-              className="relative flex bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1.5 shadow-lg"
+              className="relative flex bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1.5 shadow-lg overflow-x-auto no-scrollbar scroll-smooth"
             >
               <motion.div
                 className="absolute inset-y-1.5 bg-gradient-to-r from-emerald-500/20 to-blue-500/20 border border-emerald-500/30 rounded-lg"
