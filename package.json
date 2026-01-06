@@ -10,8 +10,7 @@
     "build": "cd client && npm run build",
     "deploy": "npm run deploy:convex && npm run deploy:vercel",
     "deploy:convex": "convex deploy",
-    "deploy:vercel": "cd client && vercel deploy",
-    "test": "vitest run"
+    "deploy:vercel": "cd client && vercel deploy"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.1.1",
@@ -20,7 +19,6 @@
   "devDependencies": {
     "@types/node": "^20.10.0",
     "convex": "^1.12.0",
-    "typescript": "^5.3.3",
-    "vitest": "^1.0.4"
+    "typescript": "^5.3.3"
   }
 }

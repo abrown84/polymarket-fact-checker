@@ -75,7 +75,7 @@ npx convex run actions/testConnections:testConnections
 - **Can't find Convex project?** Run `npx convex dev` to see your project
 - **API key not working?** Check you copied the full key
 - **401 Error?** Make sure billing is set up on OpenAI
-- **Still stuck?** Check `SETUP_CREDENTIALS.md` for detailed instructions
+- **Still stuck?** Check `docs/status/SETUP_CREDENTIALS.md` for detailed instructions
 
 
 
