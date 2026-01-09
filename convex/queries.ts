@@ -196,6 +196,26 @@ export const getRealtimePrice = query({
   },
 });
 
+export const getMarketSentimentSnapshotBefore = query({
+  args: {
+    polymarketMarketId: v.string(),
+    before: v.number(),
+  },
+  handler: async (ctx, args) => {
+    // Keep this simple: snapshot volume is low (only written when factCheck runs).
+    const snapshots = await ctx.db
+      .query("marketSentimentSnapshots")
+      .withIndex("by_market_id", (q) => q.eq("polymarketMarketId", args.polymarketMarketId))
+      .collect();
+
+    const eligible = snapshots
+      .filter((s) => s.createdAt <= args.before)
+      .sort((a, b) => b.createdAt - a.createdAt);
+
+    return eligible[0] ?? null;
+  },
+});
+
 export const getDashboardStats = query({
   args: {},
   handler: async (ctx) => {

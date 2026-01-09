@@ -46,7 +46,7 @@ const itemVariants = {
 };
 
 export default function ResultCard({ result, showDebug }: ResultCardProps) {
-  const { parsedClaim, answer, bestMarket, alternatives, newsArticles, tweets, redditPosts, tiktokVideos, instagramPosts, googleTrends, kalshiMarkets, expiringMarkets, targetDate } = result;
+  const { parsedClaim, answer, bestMarket, alternatives, marketSentiment, newsArticles, tweets, redditPosts, tiktokVideos, instagramPosts, googleTrends, kalshiMarkets, expiringMarkets, targetDate } = result;
   const [expandedMarkets, setExpandedMarkets] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
@@ -226,6 +226,22 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                   </span>
                 )}
               </p>
+              {marketSentiment && (
+                <div className="mt-2 text-sm text-[#bbb]">
+                  <span className="text-[#888]">Sentiment:</span>{" "}
+                  <span className={`font-semibold ${marketSentiment.label === "bullish" ? "text-emerald-400" : marketSentiment.label === "bearish" ? "text-red-400" : "text-[#ddd]"}`}>
+                    {marketSentiment.label.toUpperCase()}
+                  </span>
+                  <span className="text-[#444]">{" • "}</span>
+                  <span className="tabular-nums text-[#888]">
+                    1h: {marketSentiment.delta1h !== null ? `${marketSentiment.delta1h >= 0 ? "+" : ""}${(marketSentiment.delta1h * 100).toFixed(1)}pp` : "N/A"}
+                  </span>
+                  <span className="text-[#444]">{" • "}</span>
+                  <span className="tabular-nums text-[#888]">
+                    24h: {marketSentiment.delta24h !== null ? `${marketSentiment.delta24h >= 0 ? "+" : ""}${(marketSentiment.delta24h * 100).toFixed(1)}pp` : "N/A"}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 

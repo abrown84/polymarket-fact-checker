@@ -13,6 +13,7 @@ export default function MarketRow({ market, isBest = false, onClick, compact = f
   const probYes = market.evidence?.priceYes ?? market.priceYes;
   const spread = market.evidence?.spread ?? market.spread;
   const volume = market.evidence?.volume ?? market.volume;
+  const volume24hr = market.evidence?.volume24hr ?? market.volume24hr;
   const liquidity = market.evidence?.liquidity ?? market.liquidity;
   const matchScore = market.matchScore ?? market.similarity;
 
@@ -99,7 +100,7 @@ export default function MarketRow({ market, isBest = false, onClick, compact = f
         <div className="flex items-center gap-1.5 text-sm">
           <DollarSign className="w-3.5 h-3.5 text-[#666]" />
           <span className="text-white font-medium">
-            {formatCurrency(volume)}
+            {formatCurrency(compact && volume24hr !== undefined ? volume24hr : volume)}
           </span>
         </div>
       </td>

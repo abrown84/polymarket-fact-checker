@@ -11,6 +11,23 @@ Convex CLI requires **Node.js 18 or higher**. The error `fetch is not defined` m
 node -v
 ```
 
+**If `node -v` prints nothing (or a window flashes and closes on Windows):**
+
+- Run:
+
+```powershell
+Get-Command node -All
+where.exe node
+```
+
+- If you see `C:\Users\<you>\AppData\Roaming\npm\node.ps1` / `node.cmd` and `npm ls -g --depth=0` shows `node@...`, remove the shim:
+
+```bash
+npm uninstall -g node
+```
+
+Then **restart your terminal** and re-check `node -v`.
+
 If it shows `v16.x.x` or lower, you need to update.
 
 ### Step 2: Update Node.js

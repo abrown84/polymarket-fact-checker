@@ -4,6 +4,15 @@
       "command": "node",
       "args": ["C:\\Users\\alexb\\Desktop\\Programming\\Apps\\polymarket-fact-checker\\mcp-server\\dist\\index.js"],
       "env": {}
+    },
+    "polymarket_python": {
+      "command": "C:\\Users\\alexb\\Desktop\\Programming\\Apps\\polymarket-fact-checker\\mcp-server-python\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\Users\\alexb\\Desktop\\Programming\\Apps\\polymarket-fact-checker\\mcp-server-python\\server.py"],
+      "env": {
+        "CLOB_HOST": "https://clob.polymarket.com",
+        "KEY": "",
+        "FUNDER": ""
+      }
     }
   }
 }

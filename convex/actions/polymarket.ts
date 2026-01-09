@@ -12,9 +12,12 @@ const POLYMARKET_CLOB_BASE = "https://clob.polymarket.com";
 
 // Cache TTLs (in milliseconds)
 const GAMMA_MARKETS_TTL = 6 * 60 * 60 * 1000; // 6 hours
+const GAMMA_EVENTS_TTL = 30 * 1000; // 30 seconds
+const GAMMA_POPULAR_TTL = 15 * 1000; // 15 seconds
 const CLOB_BOOK_TTL = 30 * 1000; // 30 seconds
 const CLOB_PRICE_TTL = 30 * 1000; // 30 seconds
 const CLOB_TRADES_TTL = 2 * 60 * 1000; // 2 minutes
+const GAMMA_MARKET_BY_ID_TTL = 15 * 1000; // 15 seconds
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -40,6 +43,44 @@ const internalApi = internal as {
     ingestMarkets: { ingestMarkets: any };
   };
 };
+
+/**
+ * Fetch a single market by ID from Gamma API.
+ * Useful to refresh market metadata (volume/liquidity/endDate/etc) without relying on ingestion.
+ */
+export const fetchGammaMarketById = action({
+  args: {
+    marketId: v.string(),
+    bypassCache: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const cacheKey = `gamma:market:id:${args.marketId}`;
+    const shouldBypassCache = args.bypassCache === true;
+    const cached = shouldBypassCache ? null : await getCache(ctx, cacheKey);
+    if (cached) return cached;
+
+    const url = `${POLYMARKET_GAMMA_BASE}/markets/${encodeURIComponent(args.marketId)}`;
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Gamma API error: ${res.status} ${res.statusText} - ${errorText}`);
+      }
+      return res;
+    });
+
+    const market = await response.json();
+    const result = { market, fetchedAt: Date.now(), url };
+
+    // cache small payload briefly
+    const cacheSize = JSON.stringify(result).length;
+    const maxCacheSize = 800 * 1024;
+    if (cacheSize < maxCacheSize) {
+      await setCache(ctx, cacheKey, result, GAMMA_MARKET_BY_ID_TTL);
+    }
+    return result;
+  },
+});
 
 /**
  * Get or set cache value
@@ -385,14 +426,16 @@ export const fetchRecentTrades = action({
 export const fetchPopularMarkets = action({
   args: {
     limit: v.optional(v.number()),
+    bypassCache: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     try {
+      const now = Date.now();
       const limit = args.limit || 50;
       const cacheKey = `gamma:popular:${limit}`;
-      const cached = await getCache(ctx, cacheKey);
+      const shouldBypassCache = args.bypassCache === true;
+      const cached = shouldBypassCache ? null : await getCache(ctx, cacheKey);
       
-      // Cache for 5 minutes for popular markets (more frequent updates)
       if (cached) {
         console.log(`[fetchPopularMarkets] Returning cached data for ${cacheKey}`);
         return cached;
@@ -420,7 +463,16 @@ export const fetchPopularMarkets = action({
       });
 
       const data = await response.json();
-      let markets = Array.isArray(data.data) ? data.data : [];
+      let markets: any[] = [];
+      if (Array.isArray(data)) {
+        markets = data;
+      } else if (Array.isArray(data?.data)) {
+        markets = data.data;
+      } else if (Array.isArray(data?.markets)) {
+        markets = data.markets;
+      } else if (Array.isArray(data?.results)) {
+        markets = data.results;
+      }
 
       console.log(`[fetchPopularMarkets] Received ${markets.length} markets from API`);
       
@@ -441,22 +493,38 @@ export const fetchPopularMarkets = action({
       // Try to sort by volume/liquidity if available, otherwise just return markets in order
       markets = markets
         .map((market: any) => {
+          const endDateRaw = market.endDate || market.endDateISO || market.endDateIso || market.endDate_iso;
+          const endDateMs = endDateRaw ? new Date(endDateRaw).getTime() : null;
+
           // Extract volume and liquidity from various possible field names
+          const volume24hr =
+            market.volume24hr ??
+            market.volume24hrClob ??
+            market.volume_24hr ??
+            market.volume_24h ??
+            0;
           const volume = market.volume || market.volumeUSD || market.usdVolume || market.totalVolume || 0;
           const liquidity = market.liquidity || market.totalLiquidity || market.usdLiquidity || 0;
           
           return {
             ...market,
+            _endDateMs: Number.isFinite(endDateMs) ? endDateMs : null,
+            _volume24hr: volume24hr,
             _volume: volume,
             _liquidity: liquidity,
           };
         })
+        // Never include ended markets
+        .filter((m: any) => !m?._endDateMs || m._endDateMs > now)
         .sort((a: any, b: any) => {
-          // Sort by volume first, then liquidity
-          if (b._volume !== a._volume) {
-            return b._volume - a._volume;
+          // Sort by 24h volume first (trending), then total volume, then liquidity
+          if ((b._volume24hr || 0) !== (a._volume24hr || 0)) {
+            return (b._volume24hr || 0) - (a._volume24hr || 0);
           }
-          return b._liquidity - a._liquidity;
+          if ((b._volume || 0) !== (a._volume || 0)) {
+            return (b._volume || 0) - (a._volume || 0);
+          }
+          return (b._liquidity || 0) - (a._liquidity || 0);
         })
         .slice(0, limit)
         .map((market: any) => {
@@ -474,6 +542,7 @@ export const fetchPopularMarkets = action({
             description: market.description || market.resolution || "",
             slug: market.slug,
             url: market.url || (market.slug ? `https://polymarket.com/event/${market.slug}` : `https://polymarket.com/event/${id}`),
+            volume24hr: market._volume24hr || 0,
             volume: market._volume || 0,
             liquidity: market._liquidity || 0,
             endDate: market.endDate || market.endDateISO || market.endDate_iso || null,
@@ -493,7 +562,7 @@ export const fetchPopularMarkets = action({
       const maxCacheSize = 800 * 1024; // 800KB
       
       if (cacheSize < maxCacheSize) {
-        await setCache(ctx, cacheKey, result, 5 * 60 * 1000); // 5 minutes
+        await setCache(ctx, cacheKey, result, GAMMA_POPULAR_TTL);
       } else {
         console.log(`[fetchPopularMarkets] Response too large (${(cacheSize / 1024).toFixed(2)}KB), skipping cache`);
       }
@@ -504,5 +573,192 @@ export const fetchPopularMarkets = action({
       console.error(`[fetchPopularMarkets] Error:`, error);
       throw error;
     }
+  },
+});
+
+/**
+ * Fetch active events from Gamma API (docs: /events?active=true&closed=false)
+ * https://docs.polymarket.com/quickstart/fetching-data
+ */
+export const fetchActiveEvents = action({
+  args: {
+    limit: v.optional(v.number()),
+    tagId: v.optional(v.number()),
+    seriesId: v.optional(v.number()),
+    order: v.optional(v.string()),
+    ascending: v.optional(v.boolean()),
+    bypassCache: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 50;
+    const params = new URLSearchParams();
+    params.set("active", "true");
+    params.set("closed", "false");
+    params.set("limit", String(limit));
+    if (args.tagId !== undefined) params.set("tag_id", String(args.tagId));
+    if (args.seriesId !== undefined) params.set("series_id", String(args.seriesId));
+    if (args.order) params.set("order", args.order);
+    if (args.ascending !== undefined) params.set("ascending", args.ascending ? "true" : "false");
+
+    const cacheKey = `gamma:events:${params.toString()}`;
+    const shouldBypassCache = args.bypassCache === true;
+    const cached = shouldBypassCache ? null : await getCache(ctx, cacheKey);
+    if (cached) return cached;
+
+    const url = `${POLYMARKET_GAMMA_BASE}/events?${params.toString()}`;
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Gamma API error: ${res.status} ${res.statusText} - ${errorText}`);
+      }
+      return res;
+    });
+
+    const data = await response.json();
+    const rawEvents: any[] = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+
+    // IMPORTANT: Gamma event payloads can be huge (nested markets/series/tags/etc) and exceed Convex cache limits.
+    // Return + cache a compact projection with only the fields the UI needs.
+    const events = rawEvents.map((e: any) => ({
+      id: e?.id,
+      slug: e?.slug,
+      title: e?.title,
+      active: e?.active,
+      closed: e?.closed,
+      restricted: e?.restricted,
+      startTime: e?.startTime,
+      endDate: e?.endDate,
+      // volumes (these exist on events and are what we use for "hot right now")
+      volume: e?.volume,
+      volume24hr: e?.volume24hr,
+      volume1wk: e?.volume1wk,
+      volume1mo: e?.volume1mo,
+      // tags are useful for filtering; keep minimal
+      tags: Array.isArray(e?.tags)
+        ? e.tags.map((t: any) => ({
+            id: t?.id,
+            label: t?.label,
+            slug: t?.slug,
+          }))
+        : [],
+      // keep only first market to avoid blowing up payload size
+      markets: Array.isArray(e?.markets)
+        ? e.markets.slice(0, 1).map((m: any) => ({
+            id: m?.id,
+            slug: m?.slug,
+            question: m?.question,
+            clobTokenIds: m?.clobTokenIds,
+            outcomes: m?.outcomes,
+            outcomePrices: m?.outcomePrices,
+          }))
+        : [],
+    }));
+
+    const result = { events, fetchedAt: Date.now(), url };
+
+    // Cache only if response is small enough (under 800KB to be safe).
+    const cacheSize = JSON.stringify(result).length;
+    const maxCacheSize = 800 * 1024; // 800KB
+    if (cacheSize < maxCacheSize) {
+      await setCache(ctx, cacheKey, result, GAMMA_EVENTS_TTL);
+    } else {
+      console.log(
+        `[fetchActiveEvents] Response too large (${(cacheSize / 1024).toFixed(2)}KB), skipping cache`
+      );
+    }
+    return result;
+  },
+});
+
+/**
+ * Fetch tags from Gamma API (docs: /tags?limit=100)
+ * https://docs.polymarket.com/quickstart/fetching-data
+ */
+export const fetchTags = action({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 100;
+    const cacheKey = `gamma:tags:${limit}`;
+    const cached = await getCache(ctx, cacheKey);
+    if (cached) return cached;
+
+    const url = `${POLYMARKET_GAMMA_BASE}/tags?limit=${limit}`;
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Gamma API error: ${res.status} ${res.statusText} - ${errorText}`);
+      }
+      return res;
+    });
+
+    const data = await response.json();
+    const tags = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+    const result = { tags, fetchedAt: Date.now(), url };
+    await setCache(ctx, cacheKey, result, 30 * 60 * 1000); // 30 minutes
+    return result;
+  },
+});
+
+/**
+ * Fetch sports leagues from Gamma API (docs: /sports)
+ * https://docs.polymarket.com/quickstart/fetching-data
+ */
+export const fetchSports = action({
+  args: {},
+  handler: async (ctx) => {
+    const cacheKey = `gamma:sports`;
+    const cached = await getCache(ctx, cacheKey);
+    if (cached) return cached;
+
+    const url = `${POLYMARKET_GAMMA_BASE}/sports`;
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Gamma API error: ${res.status} ${res.statusText} - ${errorText}`);
+      }
+      return res;
+    });
+
+    const data = await response.json();
+    const leagues = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+    const result = { leagues, fetchedAt: Date.now(), url };
+    await setCache(ctx, cacheKey, result, 6 * 60 * 60 * 1000); // 6 hours
+    return result;
+  },
+});
+
+/**
+ * Fetch market details by slug (docs: /markets?slug=...)
+ * https://docs.polymarket.com/quickstart/fetching-data
+ */
+export const fetchMarketBySlug = action({
+  args: {
+    slug: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const cacheKey = `gamma:market:slug:${args.slug}`;
+    const cached = await getCache(ctx, cacheKey);
+    if (cached) return cached;
+
+    const url = `${POLYMARKET_GAMMA_BASE}/markets?slug=${encodeURIComponent(args.slug)}`;
+    const response = await retryWithBackoff(async () => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Gamma API error: ${res.status} ${res.statusText} - ${errorText}`);
+      }
+      return res;
+    });
+
+    const data = await response.json();
+    const markets = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+    const result = { markets, fetchedAt: Date.now(), url };
+    await setCache(ctx, cacheKey, result, 10 * 60 * 1000); // 10 minutes
+    return result;
   },
 });

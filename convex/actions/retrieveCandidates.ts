@@ -50,6 +50,7 @@ export const retrieveCandidates = action({
     parsedClaim: v.any(),
   },
   handler: async (ctx, args): Promise<MarketCandidate[]> => {
+    const now = Date.now();
     const parsedClaim = args.parsedClaim as ParsedClaim;
 
     // Build retrieval text from parsed claim
@@ -106,6 +107,11 @@ export const retrieveCandidates = action({
         polymarketMarketId: candidate.polymarketMarketId,
       });
       if (market) {
+        // Never return ended markets
+        if (typeof market.endDate === "number" && market.endDate <= now) {
+          continue;
+        }
+
         results.push({
           polymarketMarketId: market.polymarketMarketId,
           title: market.title,

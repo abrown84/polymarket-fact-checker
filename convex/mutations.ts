@@ -259,6 +259,27 @@ export const upsertMarketFromWebSocket = mutation({
   },
 });
 
+export const insertMarketSentimentSnapshot = mutation({
+  args: {
+    polymarketMarketId: v.string(),
+    priceYes: v.union(v.number(), v.null()),
+    spread: v.union(v.number(), v.null()),
+    volume: v.union(v.number(), v.null()),
+    liquidity: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await ctx.db.insert("marketSentimentSnapshots", {
+      polymarketMarketId: args.polymarketMarketId,
+      priceYes: args.priceYes,
+      spread: args.spread,
+      volume: args.volume,
+      liquidity: args.liquidity,
+      createdAt: now,
+    });
+  },
+});
+
 export const upsertNewsArticle = mutation({
   args: {
     title: v.string(),

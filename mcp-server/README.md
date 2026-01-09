@@ -82,6 +82,33 @@ Fact-check a claim using Polymarket data.
 **Parameters:**
 - `claim` (string, required): The claim to fact-check
 
+### get_active_events
+Fetch active events from Gamma (`/events?active=true&closed=false`), optionally filtered by `tag_id` or `series_id`.
+
+**Parameters:**
+- `limit` (number, optional): Max events (default: 20)
+- `tag_id` (number, optional): Filter by tag id
+- `series_id` (number, optional): Filter by sports series id
+- `order` (string, optional): Order field (e.g. `startTime`, `volume24hr`) if supported
+- `ascending` (boolean, optional): Sort direction (default: false)
+
+### get_tags
+Fetch tags from Gamma (`/tags`).
+
+**Parameters:**
+- `limit` (number, optional): Max tags (default: 100)
+
+### get_sports
+Fetch sports leagues from Gamma (`/sports`).
+
+**Parameters:** none
+
+### get_market_by_slug
+Fetch market details from Gamma (`/markets?slug=...`).
+
+**Parameters:**
+- `slug` (string, required): Market slug
+
 ## Example
 
 ```typescript

@@ -21,18 +21,20 @@ const internalApi = internal as {
     getAllEmbeddings: any;
     getRecentQueries: any;
     getMarketsByEndDate: any;
+    getMarketSentimentSnapshotBefore: any;
   };
   mutations: {
     setCache: any;
     upsertMarket: any;
     upsertEmbedding: any;
     logQuery: any;
+    insertMarketSentimentSnapshot: any;
   };
   actions: {
     aiEmbed: { embedText: any };
     aiParseClaim: { aiParseClaim: any };
     aiRerank: { aiRerank: any };
-    polymarket: { fetchGammaMarkets: any; fetchClobBook: any; fetchClobLastPrice: any };
+    polymarket: { fetchGammaMarkets: any; fetchClobBook: any; fetchClobLastPrice: any; fetchGammaMarketById: any };
     retrieveCandidates: { retrieveCandidates: any };
     ingestMarkets: { ingestMarkets: any };
     retrieveNews: { retrieveNews: any };
@@ -166,6 +168,18 @@ interface FactCheckResult {
   };
   bestMarket: MarketWithEvidence | null;
   alternatives: MarketWithEvidence[];
+  marketSentiment?: {
+    label: "bullish" | "bearish" | "neutral" | "unknown";
+    priceYes: number | null;
+    delta1h: number | null;
+    delta24h: number | null;
+    confidence: number;
+    drivers: {
+      volumeScore: number;
+      spreadScore: number;
+      momentumScore: number;
+    };
+  };
   newsArticles?: NewsArticle[]; // Relevant news articles
   tweets?: Tweet[]; // Relevant tweets
   redditPosts?: RedditPost[]; // Relevant Reddit posts
@@ -344,6 +358,7 @@ export const factCheck = action({
     // Step 4: Fetch evidence for top 15 (more markets for better coverage)
     const topMarkets: RankedMarket[] = rankedMarkets.slice(0, 15);
     const marketsWithEvidence: MarketWithEvidence[] = [];
+    const evidenceNow = Date.now();
 
     for (const rankedMarket of topMarkets) {
       const market = candidates.find(
@@ -352,6 +367,54 @@ export const factCheck = action({
       if (!market) continue;
 
       try {
+        // Refresh market metadata from Gamma (so title/volume/liquidity/endDate aren't tied to ingestion cadence).
+        // If Gamma says it's ended, skip it entirely.
+        let refreshedMarket: Partial<MarketCandidate> | null = null;
+        try {
+          const gamma = await ctx.runAction(internalApi.actions.polymarket.fetchGammaMarketById, {
+            marketId: market.polymarketMarketId,
+          });
+          const m = gamma?.market;
+          if (m) {
+            const endDateRaw = m.endDate || m.endDateISO || m.endDateIso || m.endDate_iso;
+            const endDateMs = endDateRaw ? new Date(endDateRaw).getTime() : null;
+            if (typeof endDateMs === "number" && Number.isFinite(endDateMs) && endDateMs <= evidenceNow) {
+              continue;
+            }
+
+            let outcomes: string[] = ["Yes", "No"];
+            if (m.outcomes) {
+              if (typeof m.outcomes === "string") {
+                try {
+                  const parsed = JSON.parse(m.outcomes);
+                  if (Array.isArray(parsed)) outcomes = parsed.map((x) => String(x));
+                } catch {
+                  outcomes = [String(m.outcomes)];
+                }
+              } else if (Array.isArray(m.outcomes)) {
+                outcomes = m.outcomes.map((x: any) => String(x));
+              }
+            }
+
+            refreshedMarket = {
+              title: String(m.question || m.title || market.title),
+              description: String(m.description || m.resolution || market.description || ""),
+              endDate: endDateMs && Number.isFinite(endDateMs) ? endDateMs : market.endDate,
+              outcomes,
+              url: m.slug ? `https://polymarket.com/event/${m.slug}` : market.url,
+              volume: typeof m.volumeNum === "number" ? m.volumeNum : m.volume ? Number.parseFloat(String(m.volume)) : market.volume,
+              liquidity: typeof m.liquidityNum === "number" ? m.liquidityNum : m.liquidity ? Number.parseFloat(String(m.liquidity)) : market.liquidity,
+            };
+          }
+        } catch {
+          // If Gamma refresh fails, continue using ingested market data.
+        }
+
+        const mergedMarket: MarketCandidate = {
+          ...market,
+          ...(refreshedMarket || {}),
+        };
+
         // Fetch price from WebSocket (includes bid/ask for spread calculation)
         const price = await ctx
           .runAction(internalApi.actions.polymarket.fetchClobLastPrice, {
@@ -382,13 +445,13 @@ export const factCheck = action({
         }
 
         marketsWithEvidence.push({
-          ...market,
+          ...mergedMarket,
           ...rankedMarket,
           evidence: {
             priceYes,
             spread,
-            volume: market.volume,
-            liquidity: market.liquidity,
+            volume: mergedMarket.volume,
+            liquidity: mergedMarket.liquidity,
             updatedAt: Date.now(),
           },
         });
@@ -454,13 +517,62 @@ export const factCheck = action({
       : 0.5;
     const recencyScore = 0.8; // Assume recent if we just fetched
 
+    // Step 5.5: Derive market sentiment (probability + momentum + confidence)
+    const now = Date.now();
+    const priceYesNow = bestMarket.evidence.priceYes;
+    const snap1h = await ctx.runQuery(internalApi.queries.getMarketSentimentSnapshotBefore, {
+      polymarketMarketId: bestMarket.polymarketMarketId,
+      before: now - 60 * 60 * 1000,
+    });
+    const snap24h = await ctx.runQuery(internalApi.queries.getMarketSentimentSnapshotBefore, {
+      polymarketMarketId: bestMarket.polymarketMarketId,
+      before: now - 24 * 60 * 60 * 1000,
+    });
+
+    const delta1h =
+      priceYesNow !== null && snap1h?.priceYes !== null && typeof snap1h?.priceYes === "number"
+        ? priceYesNow - snap1h.priceYes
+        : null;
+    const delta24h =
+      priceYesNow !== null && snap24h?.priceYes !== null && typeof snap24h?.priceYes === "number"
+        ? priceYesNow - snap24h.priceYes
+        : null;
+
+    const momentumScore = delta1h !== null ? clamp01(0.5 + delta1h * 2) : 0.5;
+    const sentimentConfidence = clamp01(0.55 * volumeScore + 0.25 * spreadScore + 0.20 * momentumScore);
+    const sentimentLabel: "bullish" | "bearish" | "neutral" | "unknown" =
+      priceYesNow === null
+        ? "unknown"
+        : priceYesNow > 0.55
+        ? "bullish"
+        : priceYesNow < 0.45
+        ? "bearish"
+        : "neutral";
+
+    // Write a snapshot for future momentum calculations (only when we have a price)
+    if (priceYesNow !== null) {
+      try {
+        await ctx.runMutation(internalApi.mutations.insertMarketSentimentSnapshot, {
+          polymarketMarketId: bestMarket.polymarketMarketId,
+          priceYes: priceYesNow,
+          spread: bestMarket.evidence.spread,
+          volume: bestMarket.evidence.volume,
+          liquidity: bestMarket.evidence.liquidity,
+        });
+      } catch (e) {
+        // Don't fail factCheck if snapshot insert fails
+        console.warn("[factCheck] Failed to store market sentiment snapshot:", e);
+      }
+    }
+
     // More lenient confidence calculation - give more weight to match score
     // but accept lower scores as valid matches
     const confidence = clamp01(
-      0.50 * matchScore +
+      0.45 * matchScore +
         0.25 * volumeScore +
         0.15 * spreadScore +
-        0.10 * recencyScore
+        0.10 * momentumScore +
+        0.05 * recencyScore
     );
 
     // Step 6: Generate comprehensive answer based on market data
@@ -818,6 +930,15 @@ Based on this market data, news context, social media sentiment from multiple pl
       }
     }
 
+    // Append market sentiment context (purely market-derived)
+    if (priceYesNow !== null) {
+      const d1hText =
+        delta1h !== null ? `${delta1h >= 0 ? "+" : ""}${(delta1h * 100).toFixed(1)}pp (1h)` : "N/A (1h)";
+      const d24hText =
+        delta24h !== null ? `${delta24h >= 0 ? "+" : ""}${(delta24h * 100).toFixed(1)}pp (24h)` : "N/A (24h)";
+      answerSummary += `\n\nMarket sentiment: ${sentimentLabel.toUpperCase()} — ${d1hText}, ${d24hText}.`;
+    }
+
     const result: FactCheckResult = {
       parsedClaim,
       answer: {
@@ -825,6 +946,14 @@ Based on this market data, news context, social media sentiment from multiple pl
         probYes,
         confidence,
         ambiguity: reranked.overallAmbiguity,
+      },
+      marketSentiment: {
+        label: sentimentLabel,
+        priceYes: priceYesNow,
+        delta1h,
+        delta24h,
+        confidence: sentimentConfidence,
+        drivers: { volumeScore, spreadScore, momentumScore },
       },
       bestMarket: {
         ...bestMarket,

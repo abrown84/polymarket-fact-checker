@@ -134,6 +134,55 @@ class PolymarketMCPServer {
               required: ["claim"],
             },
           },
+          {
+            name: "get_active_events",
+            description:
+              "Fetch active, tradable events from Gamma (/events?active=true&closed=false).",
+            inputSchema: {
+              type: "object",
+              properties: {
+                limit: { type: "number", description: "Max events (default: 20)", default: 20 },
+                tag_id: { type: "number", description: "Filter by tag_id (optional)" },
+                series_id: { type: "number", description: "Filter by series_id (sports) (optional)" },
+                order: {
+                  type: "string",
+                  description:
+                    "Order field (e.g. startTime, volume24hr). Passed through to Gamma if supported.",
+                },
+                ascending: {
+                  type: "boolean",
+                  description: "Ascending order (default: false)",
+                  default: false,
+                },
+              },
+            },
+          },
+          {
+            name: "get_tags",
+            description: "Fetch tags from Gamma (/tags).",
+            inputSchema: {
+              type: "object",
+              properties: {
+                limit: { type: "number", description: "Max tags (default: 100)", default: 100 },
+              },
+            },
+          },
+          {
+            name: "get_sports",
+            description: "Fetch sports leagues from Gamma (/sports).",
+            inputSchema: { type: "object", properties: {} },
+          },
+          {
+            name: "get_market_by_slug",
+            description: "Fetch market details by slug via Gamma (/markets?slug=...).",
+            inputSchema: {
+              type: "object",
+              properties: {
+                slug: { type: "string", description: "Market slug (from event/market)" },
+              },
+              required: ["slug"],
+            },
+          },
         ],
       };
     });
@@ -160,6 +209,26 @@ class PolymarketMCPServer {
 
           case "fact_check":
             return await this.factCheck(args as { claim: string });
+
+          case "get_active_events":
+            return await this.getActiveEvents(
+              args as {
+                limit?: number;
+                tag_id?: number;
+                series_id?: number;
+                order?: string;
+                ascending?: boolean;
+              }
+            );
+
+          case "get_tags":
+            return await this.getTags(args as { limit?: number });
+
+          case "get_sports":
+            return await this.getSports();
+
+          case "get_market_by_slug":
+            return await this.getMarketBySlug(args as { slug: string });
 
           default:
             throw new Error(`Unknown tool: ${name}`);
@@ -326,7 +395,8 @@ class PolymarketMCPServer {
 
   private async getPopularMarkets(args: { limit?: number }) {
     const limit = args.limit || 20;
-    const url = `${POLYMARKET_GAMMA_BASE}/markets?limit=${limit * 2}`;
+    const now = Date.now();
+    const url = `${POLYMARKET_GAMMA_BASE}/markets?limit=${limit * 4}&closed=false&active=true`;
 
     try {
       const response = await axios.get(url);
@@ -334,19 +404,33 @@ class PolymarketMCPServer {
 
       // Sort by volume/liquidity
       const sorted = markets
+        // Never include ended markets
+        .filter((m: any) => {
+          const endDateRaw = m.endDate || m.endDateISO || m.endDateIso || m.endDate_iso;
+          if (!endDateRaw) return true;
+          const endDateMs = new Date(endDateRaw).getTime();
+          return Number.isFinite(endDateMs) ? endDateMs > now : true;
+        })
         .map((m: any) => ({
           id: m.id || m.marketId,
           question: m.question || m.title,
           description: m.description,
           slug: m.slug,
           url: m.url || (m.slug ? `https://polymarket.com/event/${m.slug}` : null),
-          volume: m.volume || m.volumeUSD || 0,
-          liquidity: m.liquidity || m.totalLiquidity || 0,
+          volume: m.volumeNum || m.volume || m.volumeUSD || 0,
+          liquidity: m.liquidityNum || m.liquidity || m.totalLiquidity || 0,
           active: m.active,
+          closed: m.closed,
+          endDate: m.endDate || m.endDateISO || m.endDate_iso || null,
         }))
         .sort((a: any, b: any) => {
-          if (b.volume !== a.volume) return b.volume - a.volume;
-          return b.liquidity - a.liquidity;
+          const volA = typeof a.volume === "string" ? Number.parseFloat(a.volume) : Number(a.volume) || 0;
+          const volB = typeof b.volume === "string" ? Number.parseFloat(b.volume) : Number(b.volume) || 0;
+          if (volB !== volA) return volB - volA;
+
+          const liqA = typeof a.liquidity === "string" ? Number.parseFloat(a.liquidity) : Number(a.liquidity) || 0;
+          const liqB = typeof b.liquidity === "string" ? Number.parseFloat(b.liquidity) : Number(b.liquidity) || 0;
+          return liqB - liqA;
         })
         .slice(0, limit);
 
@@ -449,6 +533,140 @@ class PolymarketMCPServer {
     } catch (error: any) {
       throw new Error(`Failed to fact-check: ${error.message}`);
     }
+  }
+
+  private async getActiveEvents(args: {
+    limit?: number;
+    tag_id?: number;
+    series_id?: number;
+    order?: string;
+    ascending?: boolean;
+  }) {
+    const limit = args.limit || 20;
+    const params = new URLSearchParams();
+    params.set("active", "true");
+    params.set("closed", "false");
+    params.set("limit", String(limit));
+    if (typeof args.tag_id === "number") params.set("tag_id", String(args.tag_id));
+    if (typeof args.series_id === "number") params.set("series_id", String(args.series_id));
+    if (args.order) params.set("order", args.order);
+    if (typeof args.ascending === "boolean") params.set("ascending", args.ascending ? "true" : "false");
+
+    const url = `${POLYMARKET_GAMMA_BASE}/events?${params.toString()}`;
+    const response = await axios.get(url);
+    const events = Array.isArray(response.data) ? response.data : response.data?.data || [];
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              url,
+              count: events.length,
+              events: events.map((e: any) => ({
+                id: e.id,
+                title: e.title,
+                slug: e.slug,
+                active: e.active,
+                closed: e.closed,
+                volume: e.volume,
+                volume24hr: e.volume24hr,
+                volume1wk: e.volume1wk,
+                marketsCount: Array.isArray(e.markets) ? e.markets.length : 0,
+                markets: Array.isArray(e.markets)
+                  ? e.markets.slice(0, 2).map((m: any) => ({
+                      id: m.id,
+                      question: m.question,
+                      slug: m.slug,
+                      clobTokenIds: m.clobTokenIds,
+                      outcomes: m.outcomes,
+                      outcomePrices: m.outcomePrices,
+                    }))
+                  : [],
+              })),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async getTags(args: { limit?: number }) {
+    const limit = args.limit || 100;
+    const url = `${POLYMARKET_GAMMA_BASE}/tags?limit=${limit}`;
+    const response = await axios.get(url);
+    const tags = Array.isArray(response.data) ? response.data : response.data?.data || [];
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              url,
+              count: tags.length,
+              tags: tags.map((t: any) => ({
+                id: t.id,
+                label: t.label,
+                slug: t.slug,
+              })),
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async getSports() {
+    const url = `${POLYMARKET_GAMMA_BASE}/sports`;
+    const response = await axios.get(url);
+    const leagues = Array.isArray(response.data) ? response.data : response.data?.data || [];
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              url,
+              count: leagues.length,
+              leagues,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
+  }
+
+  private async getMarketBySlug(args: { slug: string }) {
+    const url = `${POLYMARKET_GAMMA_BASE}/markets?slug=${encodeURIComponent(args.slug)}`;
+    const response = await axios.get(url);
+    const markets = Array.isArray(response.data) ? response.data : response.data?.data || [];
+    const market = markets[0] || null;
+
+    return {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            {
+              url,
+              found: !!market,
+              market,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    };
   }
 
   async run() {

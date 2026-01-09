@@ -56,6 +56,18 @@ export default defineSchema({
     .index("by_token_id", ["tokenId"])
     .index("by_last_updated", ["lastUpdated"]),
 
+  marketSentimentSnapshots: defineTable({
+    polymarketMarketId: v.string(),
+    priceYes: v.union(v.number(), v.null()),
+    spread: v.union(v.number(), v.null()),
+    volume: v.union(v.number(), v.null()),
+    liquidity: v.union(v.number(), v.null()),
+    createdAt: v.number(),
+  })
+    .index("by_market_id", ["polymarketMarketId"])
+    .index("by_market_and_created_at", ["polymarketMarketId", "createdAt"])
+    .index("by_created_at", ["createdAt"]),
+
   newsArticles: defineTable({
     title: v.string(),
     url: v.string(),
@@ -75,6 +87,17 @@ export default defineSchema({
     text: v.string(),
     author: v.string(),
     authorUsername: v.string(),
+    // These fields may exist on older stored tweet documents (e.g. from earlier ingestion versions).
+    // Keep them optional so schema validation doesn't fail on existing data.
+    authorVerified: v.optional(v.union(v.boolean(), v.null())),
+    contextAnnotations: v.optional(v.union(v.array(v.any()), v.null())),
+    entities: v.optional(v.union(v.any(), v.null())),
+    isQuoteTweet: v.optional(v.union(v.boolean(), v.null())),
+    language: v.optional(v.union(v.string(), v.null())),
+    mediaUrls: v.optional(v.union(v.array(v.string()), v.null())),
+    quoteCount: v.optional(v.union(v.number(), v.null())),
+    quotedTweetId: v.optional(v.union(v.string(), v.null())),
+    replyCount: v.optional(v.union(v.number(), v.null())),
     tweetCreatedAt: v.number(), // When the tweet was created on Twitter
     url: v.string(),
     retweetCount: v.union(v.number(), v.null()),

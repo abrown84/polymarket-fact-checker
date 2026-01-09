@@ -34,6 +34,27 @@ This happens because Convex CLI version 1.31.0 requires **Node.js 18 or higher**
    npm install
    ```
 
+### Windows/Powershell gotcha: `node -v` does nothing or pops a window
+
+If `node -v` prints nothing (or a window flashes and closes), PowerShell may be running an **npm-installed shim** instead of your real `node.exe`.
+
+1. **Check what `node` resolves to:**
+   ```powershell
+   Get-Command node -All
+   where.exe node
+   ```
+
+2. **If you see `C:\Users\<you>\AppData\Roaming\npm\node.ps1` / `node.cmd` and `npm ls -g --depth=0` shows `node@...`:**
+   ```bash
+   npm uninstall -g node
+   ```
+
+3. **Restart your terminal and verify:**
+   ```bash
+   node -v
+   node -p "typeof fetch"
+   ```
+
 5. **Try running again:**
    ```bash
    npm run dev

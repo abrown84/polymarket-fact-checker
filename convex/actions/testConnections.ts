@@ -53,13 +53,14 @@ async function testGammaAPI(): Promise<TestResult> {
     }
 
     const data = await response.json();
+    const markets = Array.isArray(data) ? data : Array.isArray((data as any)?.data) ? (data as any).data : [];
     return {
       name: "Polymarket Gamma API",
       success: true,
       details: {
-        hasData: !!data.data,
-        dataLength: Array.isArray(data.data) ? data.data.length : 0,
-        hasCursor: !!data.cursor,
+        hasData: markets.length > 0,
+        dataLength: markets.length,
+        hasCursor: !!(data as any)?.cursor,
       },
       duration: Date.now() - startTime,
     };

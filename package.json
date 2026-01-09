@@ -3,7 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
+    "predev": "node ./scripts/check-node-version.mjs",
     "dev": "convex dev --once --typecheck=disable && npm run dev:client",
     "dev:client": "cd client && npm run dev",
     "dev:convex": "convex dev --typecheck=disable",

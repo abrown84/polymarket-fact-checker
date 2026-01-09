@@ -55,6 +55,13 @@ Once configured, you can use these tools in Cursor:
 - **get_popular_markets**: Get trending markets
 - **fact_check**: Fact-check claims using Polymarket data
 
+## Optional: Authenticated Python MCP server
+
+If you want **authenticated** CLOB access (using `KEY` + `FUNDER`), there is an optional Python MCP server in `mcp-server-python/`.
+
+- Setup: see `mcp-server-python/README.md`
+- Run: `scripts/run-mcp-python.ps1`
+
 ## Example Usage
 
 In Cursor, you can now ask:

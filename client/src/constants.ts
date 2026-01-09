@@ -24,6 +24,10 @@ export const DATA_CONSTANTS = {
   // Market limits
   MARKETS_PER_PAGE: 20,
   MARKETS_INITIAL_LOAD: 20,
+
+  // Hot events (Gamma /events) limits
+  HOT_EVENTS_LIMIT: 8,
+  HOT_EVENTS_FETCH_LIMIT: 50,
   
   // News limits
   NEWS_ARTICLES_LIMIT: 1000,

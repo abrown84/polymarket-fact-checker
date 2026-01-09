@@ -1,13 +1,14 @@
 import { useQuery, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { motion } from "framer-motion";
-import { TrendingUp, Activity, Clock, Flame, Search, BarChart3, Zap, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { TrendingUp, Activity, Clock, Flame, Search, BarChart3, Zap, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw } from "lucide-react";
 import { useEffect, useState, useRef, useMemo } from "react";
 import { SkeletonStats, SkeletonMarketRow } from "./Skeleton";
 import { AnimatedNumber, AnimatedPercent } from "./AnimatedNumber";
 import MarketRow from "./MarketRow";
 import MarketIngestion from "./MarketIngestion";
 import { DATA_CONSTANTS } from "../constants";
+import HotEventsPanel from "./HotEventsPanel";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -42,8 +43,10 @@ export default function Dashboard() {
   const [popularMarkets, setPopularMarkets] = useState<any[]>([]);
   const [loadingMarkets, setLoadingMarkets] = useState(true);
   const [loadingMoreMarkets, setLoadingMoreMarkets] = useState(false);
+  const [refreshingMarkets, setRefreshingMarkets] = useState(false);
   const [hasMoreMarkets, setHasMoreMarkets] = useState(true);
   const [marketsOffset, setMarketsOffset] = useState(0);
+  const [marketsFetchedAt, setMarketsFetchedAt] = useState<number | null>(null);
   const loadMoreMarketsRef = useRef<HTMLDivElement>(null);
   const [sortField, setSortField] = useState<SortField>("volume");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
@@ -64,6 +67,7 @@ export default function Dashboard() {
         setPopularMarkets(result.markets || []);
         setHasMoreMarkets(result.hasMore !== false);
         setMarketsOffset(result.markets?.length || 0);
+        setMarketsFetchedAt(typeof result?.fetchedAt === "number" ? result.fetchedAt : Date.now());
       } catch (error: any) {
         console.error("Error fetching popular markets:", error);
         setPopularMarkets([]);
@@ -77,6 +81,26 @@ export default function Dashboard() {
     const interval = setInterval(fetchPopularMarkets, DATA_CONSTANTS.DASHBOARD_POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [getPopularMarketsWithPrices]);
+
+  const handleRefreshPopularMarkets = async () => {
+    try {
+      setRefreshingMarkets(true);
+      console.log("[Dashboard] Refreshing popular markets (bypass cache)...");
+      const result = await getPopularMarketsWithPrices({
+        limit: DATA_CONSTANTS.MARKETS_INITIAL_LOAD,
+        offset: 0,
+        bypassCache: true,
+      });
+      setPopularMarkets(result.markets || []);
+      setHasMoreMarkets(result.hasMore !== false);
+      setMarketsOffset(result.markets?.length || 0);
+      setMarketsFetchedAt(typeof result?.fetchedAt === "number" ? result.fetchedAt : Date.now());
+    } catch (error: any) {
+      console.error("Error refreshing popular markets:", error);
+    } finally {
+      setRefreshingMarkets(false);
+    }
+  };
 
   // Sort markets client-side
   const sortedMarkets = useMemo(() => {
@@ -92,8 +116,10 @@ export default function Dashboard() {
           bValue = b.evidence?.priceYes ?? b.priceYes ?? 0;
           break;
         case "volume":
-          aValue = a.evidence?.volume ?? a.volume ?? 0;
-          bValue = b.evidence?.volume ?? b.volume ?? 0;
+          // Popular Markets is intended to be "trending", so sort by 24h volume.
+          // Fall back to total volume if 24h is unavailable.
+          aValue = a.evidence?.volume24hr ?? a.volume24hr ?? a.evidence?.volume ?? a.volume ?? 0;
+          bValue = b.evidence?.volume24hr ?? b.volume24hr ?? b.evidence?.volume ?? b.volume ?? 0;
           break;
         case "liquidity":
           aValue = a.evidence?.liquidity ?? a.liquidity ?? 0;
@@ -154,6 +180,7 @@ export default function Dashboard() {
               setPopularMarkets(prev => [...prev, ...(result.markets || [])]);
               setHasMoreMarkets(result.hasMore !== false);
               setMarketsOffset(currentOffset + (result.markets?.length || 0));
+              setMarketsFetchedAt(typeof result?.fetchedAt === "number" ? result.fetchedAt : Date.now());
             })
             .catch((error) => {
               console.error("Error loading more markets:", error);
@@ -295,6 +322,9 @@ export default function Dashboard() {
         </motion.div>
       </motion.div>
 
+      {/* Hot Events (24h volume) */}
+      <HotEventsPanel />
+
       {/* Popular Markets */}
       <motion.div
         variants={cardVariants}
@@ -312,7 +342,24 @@ export default function Dashboard() {
                 transition={{ duration: 2, repeat: Infinity }}
               />
             </div>
-            <p className="text-xs text-[#888]">Live market data</p>
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-[#888] tabular-nums">
+                Live market data
+                {marketsFetchedAt
+                  ? ` • updated ${Math.max(0, Math.round((Date.now() - marketsFetchedAt) / 1000))}s ago`
+                  : ""}
+              </p>
+              <button
+                type="button"
+                onClick={handleRefreshPopularMarkets}
+                disabled={loadingMarkets || refreshingMarkets}
+                className="inline-flex items-center gap-2 text-xs px-2.5 py-1.5 rounded border border-[#2a2a2a] text-[#aaa] bg-black/20 hover:bg-black/30 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Refresh (bypass cache)"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${refreshingMarkets ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
 
@@ -359,7 +406,7 @@ export default function Dashboard() {
                       onClick={() => handleSort("volume")}
                     >
                       <div className="flex items-center">
-                        Volume
+                        24h Volume
                         <SortIcon field="volume" />
                       </div>
                     </th>
