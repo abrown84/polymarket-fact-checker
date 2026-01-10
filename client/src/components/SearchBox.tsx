@@ -57,8 +57,8 @@ export default function SearchBox({
             <motion.button
               type="submit"
               disabled={loading || !question.trim()}
-              whileHover={loading ? {} : { scale: 1.02 }}
-              whileTap={loading ? {} : { scale: 0.98 }}
+              whileHover={loading ? {} : {}}
+              whileTap={loading ? {} : {}}
               className="absolute right-2 top-1/2 -translate-y-1/2 
                 px-5 h-11 rounded-xl
                 bg-gradient-to-r from-cyan to-[#00b8e6]
@@ -67,7 +67,9 @@ export default function SearchBox({
                 transition-all duration-200
                 flex items-center justify-center gap-2
                 shadow-lg shadow-cyan/20
-                min-w-[100px]"
+                min-w-[100px]
+                hover:shadow-xl hover:shadow-cyan/30 hover:brightness-110
+                active:scale-[0.98]"
             >
               <AnimatePresence mode="wait">
                 {loading ? (
