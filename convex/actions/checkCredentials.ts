@@ -63,6 +63,16 @@ async function testTwitter(): Promise<{ success: boolean; error?: string; detail
 
     if (!response.ok) {
       const errorText = await response.text();
+      const errorJson = JSON.parse(errorText).catch(() => ({ title: errorText.substring(0, 100) }));
+      
+      // 429 is rate limiting - credentials are valid but hit rate limit
+      if (response.status === 429) {
+        return {
+          success: false,
+          error: `HTTP 429: Rate limited. Credentials are valid but API quota exceeded. Wait before retrying.`,
+        };
+      }
+      
       return {
         success: false,
         error: `HTTP ${response.status}: ${errorText.substring(0, 100)}`,
@@ -199,7 +209,8 @@ async function testInstagram(): Promise<{ success: boolean; error?: string; deta
 async function testKalshi(): Promise<{ success: boolean; error?: string; details?: any }> {
   const key = process.env.KALSHI_API_KEY;
   const secret = process.env.KALSHI_API_SECRET;
-  const base = process.env.KALSHI_API_BASE || "https://api.kalshi.com/trade-api/v2";
+  // Use the new elections subdomain endpoint
+  const base = process.env.KALSHI_API_BASE || "https://api.elections.kalshi.com/trade-api/v2";
 
   if (!key || !secret) {
     return {
@@ -292,16 +303,27 @@ async function testReddit(): Promise<{ success: boolean; error?: string; details
   try {
     const response = await fetch("https://www.reddit.com/search.json?q=test&limit=1", {
       headers: {
-        "User-Agent": "PolymarketFactChecker/1.0",
+        "User-Agent": "PolymarketFactChecker/1.0 (by /u/polymarket-fact-checker)",
       },
       signal: AbortSignal.timeout(10000),
     });
 
     if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}` };
+      const errorText = await response.text().catch(() => "");
+      return { 
+        success: false, 
+        error: `HTTP ${response.status}${errorText ? `: ${errorText.substring(0, 100)}` : ""}` 
+      };
     }
 
-    return { success: true, details: { publicApi: true } };
+    const data = await response.json().catch(() => null);
+    return { 
+      success: true, 
+      details: { 
+        publicApi: true,
+        hasData: !!data?.data?.children 
+      } 
+    };
   } catch (error: any) {
     return { success: false, error: error.message || String(error) };
   }

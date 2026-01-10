@@ -59,7 +59,21 @@ async function searchTwitterAPI(query: string, limit: number = 20): Promise<Twee
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.warn(`[retrieveTwitter] Twitter API error: ${response.status} ${errorText}`);
+      
+      // Handle rate limiting (429)
+      if (response.status === 429) {
+        console.warn(`[retrieveTwitter] Twitter API rate limited (429). Credentials valid but quota exceeded.`);
+        // Return empty array - rate limiting is temporary
+        return [];
+      }
+      
+      // Handle authentication errors (401/403)
+      if (response.status === 401 || response.status === 403) {
+        console.error(`[retrieveTwitter] Twitter API authentication error: ${response.status}`);
+        return [];
+      }
+      
+      console.warn(`[retrieveTwitter] Twitter API error: ${response.status} ${errorText.substring(0, 200)}`);
       return [];
     }
 
