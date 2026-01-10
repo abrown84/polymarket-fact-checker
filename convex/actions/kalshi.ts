@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { retryWithBackoff } from "../utils";
 
-const KALSHI_API_BASE = process.env.KALSHI_API_BASE || "https://api.kalshi.com/trade-api/v2";
+const KALSHI_API_BASE = process.env.KALSHI_API_BASE || "https://api.elections.kalshi.com/trade-api/v2";
 
 // Type-safe internal API references
 const internalApi = internal as {
