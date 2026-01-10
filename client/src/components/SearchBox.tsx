@@ -60,13 +60,14 @@ export default function SearchBox({
               whileHover={loading ? {} : { scale: 1.02 }}
               whileTap={loading ? {} : { scale: 0.98 }}
               className="absolute right-2 top-1/2 -translate-y-1/2 
-                px-5 py-3 rounded-xl
+                px-5 h-11 rounded-xl
                 bg-gradient-to-r from-cyan to-[#00b8e6]
-                text-void font-display font-semibold
+                text-void font-display font-semibold text-sm
                 disabled:opacity-40 disabled:cursor-not-allowed
                 transition-all duration-200
-                flex items-center gap-2
-                shadow-lg shadow-cyan/20"
+                flex items-center justify-center gap-2
+                shadow-lg shadow-cyan/20
+                min-w-[100px]"
             >
               <AnimatePresence mode="wait">
                 {loading ? (
@@ -75,10 +76,10 @@ export default function SearchBox({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="flex items-center gap-2"
+                    className="flex items-center justify-center gap-2 w-full"
                   >
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="hidden sm:inline">Analyzing</span>
+                    <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />
+                    <span className="hidden sm:inline whitespace-nowrap">Analyzing</span>
                   </motion.span>
                 ) : (
                   <motion.span
@@ -86,11 +87,11 @@ export default function SearchBox({
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="flex items-center gap-2"
+                    className="flex items-center justify-center gap-2 w-full"
                   >
-                    <Sparkles className="w-4 h-4" />
-                    <span className="hidden sm:inline">Check</span>
-                    <ArrowRight className="w-4 h-4 sm:hidden" />
+                    <Sparkles className="w-4 h-4 flex-shrink-0" />
+                    <span className="hidden sm:inline whitespace-nowrap">Check</span>
+                    <ArrowRight className="w-4 h-4 sm:hidden flex-shrink-0" />
                   </motion.span>
                 )}
               </AnimatePresence>
