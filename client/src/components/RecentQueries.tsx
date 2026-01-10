@@ -1,7 +1,7 @@
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { motion } from "framer-motion";
-import { Clock, TrendingUp, History } from "lucide-react";
+import { Clock, TrendingUp, History, ChevronDown } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { DATA_CONSTANTS } from "../constants";
 
@@ -33,14 +33,11 @@ export default function RecentQueries() {
     { limit: DATA_CONSTANTS.RECENT_QUERIES_LIMIT, cursor: cursor || undefined }
   ) || { queries: [], nextCursor: null };
 
-  // Update all queries when new data arrives
   useEffect(() => {
     if (queries) {
       if (cursor === null) {
-        // Initial load
         setAllQueries(queries);
       } else {
-        // Append new queries
         setAllQueries((prev) => {
           const existingIds = new Set(prev.map((q) => q._id));
           const newQueries = queries.filter((q: any) => !existingIds.has(q._id));
@@ -52,7 +49,6 @@ export default function RecentQueries() {
     }
   }, [queries, nextCursor, cursor]);
 
-  // Infinite scroll
   useEffect(() => {
     if (!hasMore || loadingMore || !loadMoreRef.current) return;
 
@@ -90,10 +86,10 @@ export default function RecentQueries() {
   if (!queries) {
     return (
       <div className="space-y-6">
-        <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg p-8">
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 w-48 bg-[#1a1a1a] rounded" />
-            <div className="h-4 w-32 bg-[#1a1a1a] rounded" />
+        <div className="glass-card rounded-xl p-8">
+          <div className="animate-shimmer space-y-4">
+            <div className="h-6 w-48 rounded" />
+            <div className="h-4 w-32 rounded" />
           </div>
         </div>
       </div>
@@ -109,17 +105,19 @@ export default function RecentQueries() {
         className="flex items-center justify-between"
       >
         <div>
-          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-            <History className="w-6 h-6" />
-            Recent Queries
+          <h2 className="font-display text-3xl font-bold text-white flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-violet-dim flex items-center justify-center">
+              <History className="w-5 h-5 text-violet" />
+            </div>
+            Query History
           </h2>
-          <p className="text-sm text-[#888] mt-1">
+          <p className="text-[var(--text-secondary)] mt-2">
             Browse your recent fact-checking queries
           </p>
         </div>
         <div className="text-right">
-          <div className="text-2xl font-bold text-white">{allQueries.length}</div>
-          <div className="text-xs text-[#888]">Total queries</div>
+          <div className="text-3xl font-display font-bold text-white">{allQueries.length}</div>
+          <div className="text-xs text-[var(--text-muted)] font-mono uppercase">Total</div>
         </div>
       </motion.div>
 
@@ -128,23 +126,27 @@ export default function RecentQueries() {
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-lg overflow-hidden"
+        className="glass-card rounded-xl overflow-hidden"
       >
-        <div className="p-4 border-b border-[#1a1a1a] bg-[#111]">
-          <h3 className="text-sm font-semibold text-white">Query History</h3>
-          <p className="text-xs text-[#888] mt-1">Latest fact-checks and their results</p>
+        <div className="px-5 py-4 border-b border-subtle bg-surface/50">
+          <h3 className="font-display text-lg font-semibold text-white">Recent Activity</h3>
+          <p className="text-xs text-[var(--text-tertiary)] font-mono mt-1">
+            Latest fact-checks and their results
+          </p>
         </div>
 
         {allQueries.length === 0 ? (
-          <div className="p-12 text-center">
-            <History className="w-12 h-12 text-[#333] mx-auto mb-4" />
-            <p className="text-[#888]">No queries yet</p>
-            <p className="text-sm text-[#666] mt-2">
+          <div className="p-16 text-center">
+            <div className="w-16 h-16 rounded-2xl bg-surface mx-auto mb-4 flex items-center justify-center">
+              <History className="w-8 h-8 text-[var(--text-muted)]" />
+            </div>
+            <p className="text-[var(--text-secondary)] font-display text-lg">No queries yet</p>
+            <p className="text-sm text-[var(--text-tertiary)] mt-2">
               Start fact-checking to see your query history here
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-[#1a1a1a] max-h-[700px] overflow-y-auto">
+          <div className="divide-y divide-subtle max-h-[700px] overflow-y-auto">
             {allQueries.map((query: any) => {
               const isExpanded = expandedQueries.has(query._id);
               const toggleExpand = () => {
@@ -161,16 +163,16 @@ export default function RecentQueries() {
                 <motion.div
                   key={query._id}
                   variants={itemVariants}
-                  whileHover={{ backgroundColor: "rgba(17, 17, 17, 1)" }}
+                  whileHover={{ backgroundColor: "var(--bg-elevated)" }}
                   className="p-4 transition-colors cursor-pointer group"
                   onClick={toggleExpand}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white mb-2 group-hover:text-emerald-400 transition-colors line-clamp-2">
+                      <p className="text-sm font-medium text-white mb-2 group-hover:text-cyan transition-colors line-clamp-2">
                         {query.question}
                       </p>
-                      <div className="flex items-center gap-3 text-xs text-[#888] flex-wrap">
+                      <div className="flex items-center gap-3 text-xs text-[var(--text-tertiary)] flex-wrap font-mono">
                         <span className="flex items-center gap-1">
                           <Clock className="h-3 w-3" />
                           {formatTimeAgo(query.createdAt)}
@@ -179,10 +181,10 @@ export default function RecentQueries() {
                           <span
                             className={`flex items-center gap-1 ${
                               query.confidence > 0.7
-                                ? "text-emerald-500"
+                                ? "text-[#00ff88]"
                                 : query.confidence > 0.5
-                                ? "text-yellow-500"
-                                : "text-red-500"
+                                ? "text-amber"
+                                : "text-coral"
                             }`}
                           >
                             <TrendingUp className="h-3 w-3" />
@@ -190,12 +192,18 @@ export default function RecentQueries() {
                           </span>
                         )}
                         {query.bestMarketId && (
-                          <span className="text-[#666] font-mono text-xs">
-                            Market: {query.bestMarketId.slice(0, 8)}...
+                          <span className="text-[var(--text-muted)]">
+                            ID: {query.bestMarketId.slice(0, 8)}...
                           </span>
                         )}
                       </div>
                     </div>
+                    <motion.div
+                      animate={{ rotate: isExpanded ? 180 : 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />
+                    </motion.div>
                   </div>
 
                   {/* Expanded Details */}
@@ -205,27 +213,29 @@ export default function RecentQueries() {
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.2 }}
-                      className="mt-3 pt-3 border-t border-[#1a1a1a] space-y-2"
+                      className="mt-4 pt-4 border-t border-subtle space-y-3"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div>
-                        <div className="text-xs text-[#888] uppercase tracking-wide mb-1">
-                          Claim
+                        <div className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-mono mb-1">
+                          Parsed Claim
                         </div>
-                        <div className="text-sm text-[#ccc]">
+                        <div className="text-sm text-[var(--text-secondary)]">
                           {query.parsedClaim.claim}
                         </div>
                       </div>
                       {query.parsedClaim.must_include &&
                         query.parsedClaim.must_include.length > 0 && (
                           <div>
-                            <div className="text-xs text-[#888] mb-1">Must Include:</div>
-                            <div className="flex flex-wrap gap-1.5">
+                            <div className="text-xs text-[var(--text-muted)] uppercase tracking-wider font-mono mb-2">
+                              Must Include
+                            </div>
+                            <div className="flex flex-wrap gap-2">
                               {query.parsedClaim.must_include.map(
                                 (item: string, idx: number) => (
                                   <span
                                     key={idx}
-                                    className="px-2 py-0.5 bg-[#111] border border-[#1a1a1a] rounded text-xs text-[#ccc]"
+                                    className="px-2.5 py-1 bg-surface border border-subtle rounded-lg text-xs text-[var(--text-secondary)] font-mono"
                                   >
                                     {item}
                                   </span>
@@ -244,15 +254,15 @@ export default function RecentQueries() {
 
         {/* Infinite scroll trigger */}
         {hasMore && (
-          <div ref={loadMoreRef} className="py-4 text-center">
+          <div ref={loadMoreRef} className="py-6 text-center border-t border-subtle">
             {loadingMore ? (
-              <div className="flex items-center justify-center gap-2 text-[#888]">
+              <div className="flex items-center justify-center gap-2 text-[var(--text-tertiary)]">
                 <motion.div
-                  className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full"
+                  className="w-4 h-4 border-2 border-cyan border-t-transparent rounded-full"
                   animate={{ rotate: 360 }}
                   transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
                 />
-                <span className="text-sm">Loading more queries...</span>
+                <span className="text-sm font-mono">Loading more...</span>
               </div>
             ) : (
               <div className="h-4" />
@@ -263,4 +273,3 @@ export default function RecentQueries() {
     </div>
   );
 }
-

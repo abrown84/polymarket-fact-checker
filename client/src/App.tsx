@@ -7,7 +7,7 @@ import SearchBox from "./components/SearchBox";
 import ResultCard from "./components/ResultCard";
 import Dashboard from "./components/Dashboard";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, BarChart3, Info, History, Newspaper } from "lucide-react";
+import { Search, History, Newspaper, Zap, TrendingUp } from "lucide-react";
 import RecentQueries from "./components/RecentQueries";
 import NewsFeed from "./components/NewsFeed";
 import { UI_CONSTANTS } from "./constants";
@@ -15,10 +15,10 @@ import { UI_CONSTANTS } from "./constants";
 type View = "search" | "dashboard" | "queries" | "news";
 
 const tabs = [
-  { id: "search" as View, label: "Search", icon: Search },
-  { id: "dashboard" as View, label: "Dashboard", icon: BarChart3 },
-  { id: "queries" as View, label: "Recent Queries", icon: History },
-  { id: "news" as View, label: "News", icon: Newspaper },
+  { id: "search" as View, label: "Oracle", icon: Search, description: "Fact-check claims" },
+  { id: "dashboard" as View, label: "Markets", icon: TrendingUp, description: "Live data" },
+  { id: "queries" as View, label: "History", icon: History, description: "Past queries" },
+  { id: "news" as View, label: "Feed", icon: Newspaper, description: "Latest news" },
 ];
 
 function AppContent() {
@@ -73,7 +73,6 @@ function AppContent() {
     updateIndicator();
     window.addEventListener("resize", updateIndicator);
     
-    // Small delay to ensure DOM is updated
     const timeout = setTimeout(updateIndicator, UI_CONSTANTS.TAB_INDICATOR_UPDATE_DELAY);
     
     return () => {
@@ -83,35 +82,50 @@ function AppContent() {
   }, [view]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#000000] via-[#0a0a0a] to-[#000000]">
-      {/* Enhanced Header */}
-      <div className="border-b border-[#1a1a1a] bg-gradient-to-r from-[#0a0a0a] to-[#111] sticky top-0 z-50 backdrop-blur-md bg-opacity-95 shadow-lg shadow-black/20">
-        <div className="container mx-auto px-4 py-3 md:py-5 max-w-[1800px]">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="min-h-screen bg-void bg-grid">
+      {/* Ambient gradient */}
+      <div className="fixed inset-0 bg-radial-accent pointer-events-none" />
+      
+      {/* Header */}
+      <header className="relative z-50 border-b border-subtle">
+        <div className="mx-auto px-4 sm:px-6 lg:px-8 max-w-[1800px]">
+          <div className="flex items-center justify-between h-16 md:h-20">
+            {/* Logo */}
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-blue-500/20 border border-emerald-500/30 flex items-center justify-center flex-shrink-0">
-                  <BarChart3 className="w-5 h-5 md:w-6 md:h-6 text-emerald-400" />
+              <motion.div 
+                className="relative"
+                whileHover={{ scale: 1.05 }}
+                transition={{ type: "spring", stiffness: 400 }}
+              >
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan to-cyan/60 flex items-center justify-center glow-cyan">
+                  <Zap className="w-5 h-5 text-void" />
                 </div>
-                <div>
-                  <h1 className="text-xl md:text-2xl font-bold bg-gradient-to-r from-white to-[#ddd] bg-clip-text text-transparent">
-                    Polymarket Fact Checker
-                  </h1>
-                  <div className="hidden md:flex items-center gap-2 text-xs text-[#666] mt-0.5">
-                    <Info className="w-3.5 h-3.5" />
-                    <span>Multi-source fact-checking powered by prediction markets & social media</span>
-                  </div>
-                </div>
+                <motion.div 
+                  className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-amber rounded-full"
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                />
+              </motion.div>
+              
+              <div>
+                <h1 className="font-display text-xl md:text-2xl font-bold tracking-tight">
+                  <span className="text-gradient-cyan">Quantum</span>
+                  <span className="text-white">Truth</span>
+                </h1>
+                <p className="hidden md:block text-xs text-[var(--text-tertiary)] font-mono tracking-wide">
+                  PREDICTION MARKET INTELLIGENCE
+                </p>
               </div>
             </div>
 
-            {/* Enhanced Navigation Tabs */}
-            <div 
+            {/* Navigation */}
+            <nav 
               ref={containerRef}
-              className="relative flex bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1.5 shadow-lg overflow-x-auto no-scrollbar scroll-smooth"
+              className="relative flex items-center gap-1 p-1 rounded-full bg-surface/80 backdrop-blur-sm border border-subtle"
             >
+              {/* Active indicator */}
               <motion.div
-                className="absolute inset-y-1.5 bg-gradient-to-r from-emerald-500/20 to-blue-500/20 border border-emerald-500/30 rounded-lg"
+                className="absolute inset-y-1 rounded-full bg-gradient-to-r from-cyan/20 to-cyan/10 border border-cyan/30"
                 initial={false}
                 animate={{
                   x: indicatorStyle.x,
@@ -131,33 +145,69 @@ function AppContent() {
                     tabRefs.current[tab.id] = el;
                   }}
                   onClick={() => setView(tab.id)}
-                  className={`relative z-10 flex items-center gap-2 px-6 py-2.5 rounded-lg font-medium transition-all text-sm ${
+                  className={`relative z-10 flex items-center gap-2 px-4 md:px-5 py-2 rounded-full font-medium transition-all text-sm ${
                     view === tab.id
-                      ? "text-white"
-                      : "text-[#888] hover:text-white"
+                      ? "text-cyan"
+                      : "text-[var(--text-tertiary)] hover:text-white"
                   }`}
                 >
                   <tab.icon className="h-4 w-4" />
-                  <span className="hidden sm:inline">{tab.label}</span>
+                  <span className="hidden sm:inline font-display">{tab.label}</span>
                 </button>
               ))}
-            </div>
+            </nav>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Main Content - Full Width with Better Spacing */}
-      <div className="container mx-auto px-4 py-8 max-w-[1800px]">
+      {/* Main Content */}
+      <main className="relative z-10 mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-12 max-w-[1800px]">
         <AnimatePresence mode="wait">
           {view === "search" ? (
             <motion.div
               key="search"
-              initial={{ opacity: 0, filter: "blur(10px)", y: 10 }}
-              animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
-              exit={{ opacity: 0, filter: "blur(10px)", y: -10 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             >
-              <div className="max-w-4xl mx-auto mb-8">
+              {/* Hero Section */}
+              <div className="text-center mb-10 md:mb-14">
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                >
+                  <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-dim border border-cyan/20 text-cyan text-xs font-mono mb-4">
+                    <span className="w-1.5 h-1.5 rounded-full bg-cyan animate-pulse-glow" />
+                    REAL-TIME MARKET INTELLIGENCE
+                  </span>
+                </motion.div>
+                
+                <motion.h2 
+                  className="font-display text-4xl md:text-5xl lg:text-6xl font-bold tracking-tight mb-4"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.15 }}
+                >
+                  <span className="text-white">What's happening?</span>
+                  <br />
+                  <span className="text-gradient-cyan">Markets know first.</span>
+                </motion.h2>
+                
+                <motion.p 
+                  className="text-[var(--text-secondary)] text-lg max-w-2xl mx-auto"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  Get live updates on any topic, fact-check claims, or ask what's trending — 
+                  powered by prediction markets, news, and social sentiment.
+                </motion.p>
+              </div>
+
+              {/* Search Box */}
+              <div className="max-w-3xl mx-auto mb-12">
                 <SearchBox
                   question={question}
                   setQuestion={setQuestion}
@@ -166,90 +216,68 @@ function AppContent() {
                 />
               </div>
 
+              {/* Loading State */}
               <AnimatePresence mode="wait">
                 {loading && (
                   <motion.div
                     key="loading"
-                    initial={{ opacity: 0, scale: 0.9 }}
+                    initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.2 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
                     className="flex flex-col items-center py-16"
                   >
-                    <div className="relative">
+                    {/* Orbital loader */}
+                    <div className="relative w-20 h-20">
                       <motion.div
-                        className="absolute inset-0 rounded-full bg-emerald-500/20"
-                        animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-                        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                        className="absolute inset-0 rounded-full border-2 border-cyan/20"
+                        animate={{ rotate: 360 }}
+                        transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
                       />
                       <motion.div
-                        className="relative w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center"
-                        animate={{ scale: [1, 1.05, 1] }}
-                        transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                        className="absolute inset-2 rounded-full border-2 border-t-cyan border-r-transparent border-b-transparent border-l-transparent"
+                        animate={{ rotate: -360 }}
+                        transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                      />
+                      <motion.div
+                        className="absolute inset-0 flex items-center justify-center"
+                        animate={{ scale: [1, 1.1, 1] }}
+                        transition={{ duration: 2, repeat: Infinity }}
                       >
-                        <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                        >
-                          <Search className="w-7 h-7 text-emerald-500" />
-                        </motion.div>
+                        <Zap className="w-6 h-6 text-cyan" />
                       </motion.div>
                     </div>
                     
                     <motion.div
-                      className="mt-6 text-center"
+                      className="mt-8 text-center"
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: 0.2 }}
                     >
-                      <motion.p
-                        className="text-white font-medium"
-                        animate={{ opacity: [0.7, 1, 0.7] }}
-                        transition={{ duration: 2, repeat: Infinity }}
-                      >
-                        Gathering evidence from multiple sources...
-                      </motion.p>
-                      <p className="text-[#666] text-sm mt-1">
-                        Checking prediction markets, news, social media, and more
+                      <p className="font-display text-white font-semibold text-lg">
+                        Gathering intelligence...
+                      </p>
+                      <p className="text-[var(--text-tertiary)] text-sm mt-1 font-mono">
+                        Markets • News • Twitter • Reddit • Kalshi
                       </p>
                     </motion.div>
-
-                    <div className="flex gap-1.5 mt-6">
-                      {[0, 1, 2].map((i) => (
-                        <motion.div
-                          key={i}
-                          className="w-2 h-2 rounded-full bg-emerald-500"
-                          animate={{ 
-                            scale: [1, 1.3, 1],
-                            opacity: [0.3, 1, 0.3]
-                          }}
-                          transition={{ 
-                            duration: 1, 
-                            repeat: Infinity,
-                            delay: i * 0.2
-                          }}
-                        />
-                      ))}
-                    </div>
                   </motion.div>
                 )}
 
                 {result && !loading && (
                   <motion.div
                     key="result"
-                    initial={{ opacity: 0, y: 20, filter: "blur(10px)" }}
-                    animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-                    exit={{ opacity: 0, y: -20, filter: "blur(10px)" }}
-                    transition={{ duration: 0.3, ease: "easeOut" }}
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -30 }}
+                    transition={{ duration: 0.4, ease: [0.23, 1, 0.32, 1] }}
                   >
                     {result.error ? (
                       <motion.div 
-                        className="bg-[#1a0a0a] border border-red-900/50 rounded-lg p-4"
+                        className="glass-card rounded-xl p-6 border-coral/30 bg-coral-dim"
                         initial={{ scale: 0.95 }}
                         animate={{ scale: 1 }}
-                        transition={{ type: "spring", stiffness: 300, damping: 25 }}
                       >
-                        <p className="text-red-400">{result.error}</p>
+                        <p className="text-coral font-medium">{result.error}</p>
                       </motion.div>
                     ) : (
                       <>
@@ -257,7 +285,7 @@ function AppContent() {
                           <div className="mb-4 flex justify-end">
                             <button
                               onClick={() => setShowDebug(!showDebug)}
-                              className="text-sm text-[#888] hover:text-white transition-colors px-3 py-1.5 rounded border border-[#1a1a1a] hover:border-[#2a2a2a]"
+                              className="text-sm text-[var(--text-tertiary)] hover:text-white transition-colors px-3 py-1.5 rounded-lg border border-subtle hover:border-bright font-mono"
                             >
                               {showDebug ? "Hide" : "Show"} Debug
                             </button>
@@ -273,36 +301,36 @@ function AppContent() {
           ) : view === "dashboard" ? (
             <motion.div
               key="dashboard"
-              initial={{ opacity: 0, filter: "blur(10px)", y: 10 }}
-              animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
-              exit={{ opacity: 0, filter: "blur(10px)", y: -10 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             >
               <Dashboard />
             </motion.div>
           ) : view === "queries" ? (
             <motion.div
               key="queries"
-              initial={{ opacity: 0, filter: "blur(10px)", y: 10 }}
-              animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
-              exit={{ opacity: 0, filter: "blur(10px)", y: -10 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             >
               <RecentQueries />
             </motion.div>
           ) : (
             <motion.div
               key="news"
-              initial={{ opacity: 0, filter: "blur(10px)", y: 10 }}
-              animate={{ opacity: 1, filter: "blur(0px)", y: 0 }}
-              exit={{ opacity: 0, filter: "blur(10px)", y: -10 }}
-              transition={{ duration: 0.25, ease: "easeOut" }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
             >
               <NewsFeed />
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
+      </main>
     </div>
   );
 }
