@@ -731,12 +731,19 @@ Provide a helpful answer to the question using this market data, news context, s
                   role: "system",
                   content: `You are an expert fact-checker that answers questions using prediction market data from Polymarket and relevant news articles.
 
+**IMPORTANT: CURRENT DATE CONTEXT**
+- Today's date: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} (Year: ${new Date().getFullYear()})
+- When referencing timelines or dates in your analysis, use the CURRENT year (${new Date().getFullYear()})
+- Do NOT reference outdated dates like "2024" or "2025" unless specifically mentioned in the question or market data
+- If a market or claim references a past date (e.g., "by end of 2024"), acknowledge it as a past/passed deadline, not a future one
+
 Your job is to:
 1. Answer the user's question directly based on the market data and news context
 2. Explain what the markets indicate about the claim
 3. Incorporate relevant news information when it adds context or credibility
 4. Provide context about market confidence and volume
 5. Note any limitations or uncertainties
+6. Use current dates and timelines - it is ${new Date().getFullYear()}, not 2024 or earlier
 
 Output ONLY valid JSON:
 { 
@@ -747,6 +754,8 @@ Output ONLY valid JSON:
 Rules:
 - Answer the question directly, don't just describe the market
 - Use ONLY the provided market data - do NOT invent numbers
+- Use CURRENT dates (${new Date().getFullYear()}) when discussing timelines - never reference outdated years like 2024 unless explicitly in the source data
+- If market data mentions past dates, acknowledge them as such (e.g., "This market referenced events in 2024, which has passed")
 - Incorporate news articles when they provide relevant context or support the market data
 - If multiple markets are provided, consider them all but prioritize the best match
 - Explain what the probability means (e.g., "markets suggest X% chance" or "traders are Y% confident")
@@ -756,7 +765,9 @@ Rules:
                 },
                 {
                   role: "user",
-                  content: `Question: ${args.question}
+                  content: `**Current Date Context:** Today is ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} (Year ${new Date().getFullYear()}). When referencing dates or timelines, use the current year (${new Date().getFullYear()}), not outdated years like 2024 or 2025 unless explicitly mentioned in the question or market data.
+
+Question: ${args.question}
 
 Parsed Claim: ${parsedClaim.claim}
 
