@@ -1,6 +1,10 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+function toDedupeHash(parts: Array<string | number | null | undefined>): string {
+  return parts.map((p) => String(p ?? "")).join("|").slice(0, 512);
+}
+
 export const setCache = mutation({
   args: {
     key: v.string(),
@@ -142,6 +146,131 @@ export const logQuery = mutation({
   },
 });
 
+export const createFactCheckRun = mutation({
+  args: {
+    question: v.string(),
+    mode: v.union(v.literal("fast"), v.literal("deep")),
+    model: v.union(v.string(), v.null()),
+    providerFlags: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("factCheckRuns", {
+      question: args.question,
+      mode: args.mode,
+      status: "started",
+      model: args.model,
+      startedAt: Date.now(),
+      completedAt: null,
+      durationMs: null,
+      error: null,
+      bestMarketId: null,
+      confidence: null,
+      providerFlags: args.providerFlags,
+      metrics: null,
+    });
+  },
+});
+
+export const appendRunEvent = mutation({
+  args: {
+    runId: v.id("factCheckRuns"),
+    stage: v.string(),
+    status: v.union(v.literal("started"), v.literal("progress"), v.literal("completed"), v.literal("failed")),
+    message: v.string(),
+    meta: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("runEvents", {
+      runId: args.runId,
+      stage: args.stage,
+      status: args.status,
+      message: args.message,
+      meta: args.meta,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+export const completeFactCheckRun = mutation({
+  args: {
+    runId: v.id("factCheckRuns"),
+    status: v.union(v.literal("completed"), v.literal("failed")),
+    bestMarketId: v.union(v.string(), v.null()),
+    confidence: v.union(v.number(), v.null()),
+    metrics: v.optional(v.any()),
+    error: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const run = await ctx.db.get(args.runId);
+    if (!run) return;
+    const completedAt = Date.now();
+    await ctx.db.patch(args.runId, {
+      status: args.status,
+      completedAt,
+      durationMs: completedAt - run.startedAt,
+      bestMarketId: args.bestMarketId,
+      confidence: args.confidence,
+      metrics: args.metrics,
+      error: args.error ?? null,
+    });
+  },
+});
+
+export const upsertEvidenceItem = mutation({
+  args: {
+    claimKey: v.string(),
+    sourceType: v.string(),
+    sourceId: v.string(),
+    url: v.union(v.string(), v.null()),
+    title: v.union(v.string(), v.null()),
+    content: v.union(v.string(), v.null()),
+    publishedAt: v.union(v.number(), v.null()),
+    relevanceScore: v.union(v.number(), v.null()),
+    stanceScore: v.union(v.number(), v.null()),
+    credibilityScore: v.union(v.number(), v.null()),
+    freshnessScore: v.union(v.number(), v.null()),
+    metadata: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const dedupeHash = toDedupeHash([
+      args.claimKey,
+      args.sourceType,
+      args.sourceId,
+      args.url,
+      args.title,
+    ]);
+
+    const existing = await ctx.db
+      .query("evidenceItems")
+      .withIndex("by_dedupe_hash", (q) => q.eq("dedupeHash", dedupeHash))
+      .first();
+
+    const payload = {
+      claimKey: args.claimKey,
+      sourceType: args.sourceType,
+      sourceId: args.sourceId,
+      url: args.url,
+      title: args.title,
+      content: args.content,
+      publishedAt: args.publishedAt,
+      ingestedAt: Date.now(),
+      relevanceScore: args.relevanceScore,
+      stanceScore: args.stanceScore,
+      credibilityScore: args.credibilityScore,
+      freshnessScore: args.freshnessScore,
+      dedupeHash,
+      metadata: args.metadata,
+    };
+
+    if (existing) {
+      await ctx.db.patch(existing._id, payload);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("evidenceItems", payload);
+  },
+});
+
 export const deleteMarket = mutation({
   args: {
     marketId: v.id("markets"),
@@ -169,11 +298,11 @@ export const deleteEmbedding = mutation({
   },
 });
 
-export const upsertRealtimePrice = mutation({
+export const upsertRealtimeChance = mutation({
   args: {
     marketId: v.string(),
     tokenId: v.union(v.string(), v.null()),
-    price: v.union(v.number(), v.null()),
+    chance: v.union(v.number(), v.null()), // Market-implied probability (0-100)
     bid: v.union(v.number(), v.null()),
     ask: v.union(v.number(), v.null()),
     spread: v.union(v.number(), v.null()),
@@ -191,10 +320,10 @@ export const upsertRealtimePrice = mutation({
       .first();
 
     const now = Date.now();
-    const priceData = {
+    const chanceData = {
       marketId: args.marketId,
       tokenId: args.tokenId,
-      price: args.price,
+      chance: args.chance,
       bid: args.bid,
       ask: args.ask,
       spread: args.spread,
@@ -203,13 +332,16 @@ export const upsertRealtimePrice = mutation({
     };
 
     if (existing) {
-      await ctx.db.patch(existing._id, priceData);
+      await ctx.db.patch(existing._id, chanceData);
       return existing._id;
     } else {
-      return await ctx.db.insert("realtimePrices", priceData);
+      return await ctx.db.insert("realtimePrices", chanceData);
     }
   },
 });
+
+// Alias for backward compatibility
+export const upsertRealtimePrice = upsertRealtimeChance;
 
 export const upsertMarketFromWebSocket = mutation({
   args: {
@@ -262,7 +394,7 @@ export const upsertMarketFromWebSocket = mutation({
 export const insertMarketSentimentSnapshot = mutation({
   args: {
     polymarketMarketId: v.string(),
-    priceYes: v.union(v.number(), v.null()),
+    chanceYes: v.union(v.number(), v.null()), // YES outcome probability (0-1)
     spread: v.union(v.number(), v.null()),
     volume: v.union(v.number(), v.null()),
     liquidity: v.union(v.number(), v.null()),
@@ -271,7 +403,7 @@ export const insertMarketSentimentSnapshot = mutation({
     const now = Date.now();
     return await ctx.db.insert("marketSentimentSnapshots", {
       polymarketMarketId: args.polymarketMarketId,
-      priceYes: args.priceYes,
+      chanceYes: args.chanceYes, // YES outcome probability (0-1)
       spread: args.spread,
       volume: args.volume,
       liquidity: args.liquidity,
@@ -389,7 +521,7 @@ export const upsertKalshiMarket = mutation({
     yesAsk: v.union(v.number(), v.null()),
     noBid: v.union(v.number(), v.null()),
     noAsk: v.union(v.number(), v.null()),
-    lastPrice: v.union(v.number(), v.null()),
+    lastChance: v.union(v.number(), v.null()), // Last traded probability (0-100)
     volume: v.union(v.number(), v.null()),
     liquidity: v.union(v.number(), v.null()),
     url: v.string(),
@@ -416,7 +548,7 @@ export const upsertKalshiMarket = mutation({
       yesAsk: args.yesAsk,
       noBid: args.noBid,
       noAsk: args.noAsk,
-      lastPrice: args.lastPrice,
+      lastChance: args.lastChance,
       volume: args.volume,
       liquidity: args.liquidity,
       url: args.url,
@@ -618,7 +750,7 @@ export const upsertGoogleTrend = mutation({
 
     if (existing) {
       if (
-        args.trendScore !== null && 
+        args.trendScore !== null &&
         (existing.trendScore === null || args.trendScore > existing.trendScore)
       ) {
         await ctx.db.patch(existing._id, trendData);
@@ -627,5 +759,280 @@ export const upsertGoogleTrend = mutation({
     } else {
       return await ctx.db.insert("googleTrends", trendData);
     }
+  },
+});
+
+export const upsertYouTubeVideo = mutation({
+  args: {
+    videoId: v.string(),
+    title: v.string(),
+    description: v.union(v.string(), v.null()),
+    channelTitle: v.string(),
+    channelId: v.string(),
+    publishedAt: v.number(),
+    url: v.string(),
+    thumbnailUrl: v.union(v.string(), v.null()),
+    viewCount: v.union(v.number(), v.null()),
+    likeCount: v.union(v.number(), v.null()),
+    commentCount: v.union(v.number(), v.null()),
+    relevanceScore: v.union(v.number(), v.null()),
+    queryHash: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("youtubeVideos")
+      .withIndex("by_video_id", (q) => q.eq("videoId", args.videoId))
+      .first();
+
+    const now = Date.now();
+    const videoData = {
+      videoId: args.videoId,
+      title: args.title,
+      description: args.description,
+      channelTitle: args.channelTitle,
+      channelId: args.channelId,
+      publishedAt: args.publishedAt,
+      url: args.url,
+      thumbnailUrl: args.thumbnailUrl,
+      viewCount: args.viewCount,
+      likeCount: args.likeCount,
+      commentCount: args.commentCount,
+      relevanceScore: args.relevanceScore,
+      queryHash: args.queryHash,
+      storedAt: now,
+    };
+
+    if (existing) {
+      if (
+        args.relevanceScore !== null &&
+        (existing.relevanceScore === null || args.relevanceScore > existing.relevanceScore)
+      ) {
+        await ctx.db.patch(existing._id, videoData);
+      }
+      return existing._id;
+    } else {
+      return await ctx.db.insert("youtubeVideos", videoData);
+    }
+  },
+});
+
+// ============================================
+// LEARNING SYSTEM MUTATIONS
+// ============================================
+
+/**
+ * Log a prediction with source contributions for later learning
+ */
+export const logPrediction = mutation({
+  args: {
+    queryId: v.optional(v.id("queriesLog")),
+    question: v.string(),
+    predictedProbability: v.number(),
+    confidence: v.number(),
+    sourceContributions: v.object({
+      polymarket: v.optional(
+        v.object({
+          probability: v.number(),
+          marketId: v.string(),
+          volume: v.optional(v.number()),
+          liquidity: v.optional(v.number()),
+        })
+      ),
+      kalshi: v.optional(
+        v.object({
+          probability: v.number(),
+          ticker: v.string(),
+          volume: v.optional(v.number()),
+        })
+      ),
+      news: v.optional(
+        v.object({
+          sentiment: v.number(),
+          articleCount: v.number(),
+          avgRelevance: v.optional(v.number()),
+        })
+      ),
+      twitter: v.optional(
+        v.object({
+          sentiment: v.number(),
+          tweetCount: v.number(),
+          totalEngagement: v.optional(v.number()),
+        })
+      ),
+      reddit: v.optional(
+        v.object({
+          sentiment: v.number(),
+          postCount: v.number(),
+          totalScore: v.optional(v.number()),
+        })
+      ),
+      youtube: v.optional(
+        v.object({
+          sentiment: v.number(),
+          videoCount: v.number(),
+          totalViews: v.optional(v.number()),
+        })
+      ),
+    }),
+    primaryMarketId: v.union(v.string(), v.null()),
+    primaryMarketSource: v.union(v.string(), v.null()),
+    marketCloseDate: v.union(v.number(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    // Determine calibration bucket (0-10, 10-20, etc.)
+    const bucket = Math.floor(args.predictedProbability * 10) * 10;
+    const calibrationBucket = `${bucket}-${bucket + 10}`;
+
+    return await ctx.db.insert("predictions", {
+      queryId: args.queryId,
+      question: args.question,
+      predictedProbability: args.predictedProbability,
+      confidence: args.confidence,
+      sourceContributions: args.sourceContributions,
+      primaryMarketId: args.primaryMarketId,
+      primaryMarketSource: args.primaryMarketSource,
+      marketCloseDate: args.marketCloseDate,
+      actualOutcome: null,
+      outcomeRecordedAt: null,
+      brierScore: null,
+      calibrationBucket,
+      userFeedback: null,
+      userFeedbackAt: null,
+      userFeedbackNote: null,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Record user feedback on a prediction (faster signal than waiting for market resolution)
+ */
+export const recordUserFeedback = mutation({
+  args: {
+    predictionId: v.id("predictions"),
+    feedback: v.union(
+      v.literal("accurate"),
+      v.literal("inaccurate"),
+      v.literal("partial")
+    ),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.predictionId, {
+      userFeedback: args.feedback,
+      userFeedbackAt: Date.now(),
+      userFeedbackNote: args.note ?? null,
+    });
+  },
+});
+
+/**
+ * Record the actual outcome when a market resolves
+ */
+export const recordOutcome = mutation({
+  args: {
+    predictionId: v.id("predictions"),
+    actualOutcome: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const prediction = await ctx.db.get(args.predictionId);
+    if (!prediction) {
+      throw new Error("Prediction not found");
+    }
+
+    // Calculate Brier score: (predicted - actual)²
+    const actual = args.actualOutcome ? 1 : 0;
+    const brierScore = Math.pow(prediction.predictedProbability - actual, 2);
+
+    await ctx.db.patch(args.predictionId, {
+      actualOutcome: args.actualOutcome,
+      outcomeRecordedAt: Date.now(),
+      brierScore,
+    });
+
+    return { brierScore };
+  },
+});
+
+/**
+ * Save new learned weights
+ */
+export const saveLearnedWeights = mutation({
+  args: {
+    version: v.number(),
+    weights: v.object({
+      polymarket: v.number(),
+      kalshi: v.number(),
+      news: v.number(),
+      twitter: v.number(),
+      reddit: v.number(),
+      youtube: v.number(),
+    }),
+    trainingSize: v.number(),
+    avgBrierScore: v.number(),
+    calibrationError: v.union(v.number(), v.null()),
+    sourcePerformance: v.optional(
+      v.object({
+        polymarket: v.object({ avgError: v.number(), sampleSize: v.number() }),
+        kalshi: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        news: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        twitter: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        reddit: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        youtube: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+      })
+    ),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Deactivate all previous weights
+    const activeWeights = await ctx.db
+      .query("learnedWeights")
+      .withIndex("by_active", (q) => q.eq("isActive", true))
+      .collect();
+
+    for (const w of activeWeights) {
+      await ctx.db.patch(w._id, { isActive: false });
+    }
+
+    // Insert new weights as active
+    return await ctx.db.insert("learnedWeights", {
+      version: args.version,
+      weights: args.weights,
+      trainingSize: args.trainingSize,
+      avgBrierScore: args.avgBrierScore,
+      calibrationError: args.calibrationError,
+      sourcePerformance: args.sourcePerformance,
+      isActive: true,
+      notes: args.notes ?? null,
+      createdAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Save a calibration snapshot
+ */
+export const saveCalibrationSnapshot = mutation({
+  args: {
+    buckets: v.array(
+      v.object({
+        range: v.string(),
+        predictedAvg: v.number(),
+        actualRate: v.number(),
+        sampleSize: v.number(),
+      })
+    ),
+    expectedCalibrationError: v.number(),
+    overconfidenceScore: v.number(),
+    totalPredictions: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("calibrationSnapshots", {
+      buckets: args.buckets,
+      expectedCalibrationError: args.expectedCalibrationError,
+      overconfidenceScore: args.overconfidenceScore,
+      totalPredictions: args.totalPredictions,
+      createdAt: Date.now(),
+    });
   },
 });

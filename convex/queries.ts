@@ -1,6 +1,25 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 
+export const getFactCheckRun = query({
+  args: { runId: v.id("factCheckRuns") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.runId);
+  },
+});
+
+export const getRunEvents = query({
+  args: { runId: v.id("factCheckRuns") },
+  handler: async (ctx, args) => {
+    const events = await ctx.db
+      .query("runEvents")
+      .withIndex("by_run", (q) => q.eq("runId", args.runId))
+      .collect();
+
+    return events.sort((a, b) => a.createdAt - b.createdAt);
+  },
+});
+
 export const getCache = query({
   args: { key: v.string() },
   handler: async (ctx, args) => {
@@ -125,6 +144,77 @@ export const getPopularMarkets = query({
 });
 
 /**
+ * Search markets by query string
+ */
+export const searchMarkets = query({
+  args: {
+    query: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    sortBy: v.optional(v.union(
+      v.literal("volume"),
+      v.literal("liquidity"),
+      v.literal("recent"),
+      v.literal("title")
+    )),
+    sortDirection: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
+  },
+  handler: async (ctx, args) => {
+    const searchQuery = args.query || "";
+    const limit = args.limit;
+    const sortBy = args.sortBy || "volume";
+    const sortDirection = args.sortDirection || "desc";
+
+    // Get all markets
+    let markets = await ctx.db.query("markets").collect();
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const queryLower = searchQuery.toLowerCase();
+      markets = markets.filter((market) => {
+        const titleMatch = market.title?.toLowerCase().includes(queryLower);
+        const descMatch = market.description?.toLowerCase().includes(queryLower);
+        const slugMatch = market.slug?.toLowerCase().includes(queryLower);
+        const idMatch = market.polymarketMarketId?.toLowerCase().includes(queryLower);
+        return titleMatch || descMatch || slugMatch || idMatch;
+      });
+    }
+
+    // Apply sorting
+    markets.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortBy) {
+        case "volume":
+          comparison = (b.volume || 0) - (a.volume || 0);
+          break;
+        case "liquidity":
+          comparison = (b.liquidity || 0) - (a.liquidity || 0);
+          break;
+        case "recent":
+          comparison = (b.lastIngestedAt || 0) - (a.lastIngestedAt || 0);
+          break;
+        case "title":
+          comparison = (a.title || "").localeCompare(b.title || "");
+          break;
+      }
+
+      return sortDirection === "asc" ? -comparison : comparison;
+    });
+
+    // Apply limit
+    if (limit) {
+      markets = markets.slice(0, limit);
+    }
+
+    return {
+      markets,
+      total: markets.length,
+      hasMore: limit ? markets.length === limit : false,
+    };
+  },
+});
+
+/**
  * Get markets expiring on a specific date (within a day range)
  */
 export const getMarketsByEndDate = query({
@@ -178,23 +268,26 @@ export const getAllMarkets = query({
   },
 });
 
-export const getRealtimePrice = query({
+export const getRealtimeChance = query({
   args: {
     marketId: v.string(),
   },
   handler: async (ctx, args) => {
-    const price = await ctx.db
+    const chance = await ctx.db
       .query("realtimePrices")
       .withIndex("by_market_id", (q) => q.eq("marketId", args.marketId))
       .first();
     
-    // Only return if updated within last 5 minutes (real-time data should be fresh)
-    if (price && price.lastUpdated > Date.now() - 5 * 60 * 1000) {
-      return price;
+    // Only return if updated within last 5 minutes (real-time chance data should be fresh)
+    if (chance && chance.lastUpdated > Date.now() - 5 * 60 * 1000) {
+      return chance;
     }
     return null;
   },
 });
+
+// Alias for backward compatibility
+export const getRealtimePrice = getRealtimeChance;
 
 export const getMarketSentimentSnapshotBefore = query({
   args: {
@@ -326,7 +419,253 @@ export const getAllNewsArticles = query({
       .withIndex("by_published_at")
       .order("desc")
       .take(limit);
-    
+
     return articles;
+  },
+});
+
+// ============================================
+// LEARNING SYSTEM QUERIES
+// ============================================
+
+/**
+ * Get the currently active learned weights
+ */
+export const getActiveWeights = query({
+  args: {},
+  handler: async (ctx) => {
+    const activeWeights = await ctx.db
+      .query("learnedWeights")
+      .withIndex("by_active", (q) => q.eq("isActive", true))
+      .first();
+
+    return activeWeights;
+  },
+});
+
+/**
+ * Get the latest weight version number
+ */
+export const getLatestWeightVersion = query({
+  args: {},
+  handler: async (ctx) => {
+    const allWeights = await ctx.db
+      .query("learnedWeights")
+      .withIndex("by_version")
+      .order("desc")
+      .first();
+
+    return allWeights?.version ?? 0;
+  },
+});
+
+/**
+ * Get all predictions with recorded outcomes (for training)
+ */
+export const getPredictionsWithOutcomes = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 1000;
+
+    const predictions = await ctx.db
+      .query("predictions")
+      .withIndex("by_created_at")
+      .order("desc")
+      .collect();
+
+    // Filter to only those with outcomes
+    const withOutcomes = predictions.filter((p) => p.actualOutcome !== null);
+
+    return withOutcomes.slice(0, limit);
+  },
+});
+
+/**
+ * Get predictions pending outcome (market closed but no outcome recorded)
+ */
+export const getPendingOutcomePredictions = query({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+
+    const predictions = await ctx.db
+      .query("predictions")
+      .withIndex("by_outcome_pending")
+      .collect();
+
+    // Filter: no outcome yet AND market close date has passed
+    return predictions.filter(
+      (p) =>
+        p.actualOutcome === null &&
+        p.marketCloseDate !== null &&
+        p.marketCloseDate < now
+    );
+  },
+});
+
+/**
+ * Get predictions by market ID (for checking when a market resolves)
+ */
+export const getPredictionsByMarket = query({
+  args: {
+    marketId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("predictions")
+      .withIndex("by_primary_market", (q) => q.eq("primaryMarketId", args.marketId))
+      .collect();
+  },
+});
+
+/**
+ * Get learning stats summary
+ */
+export const getLearningStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const predictions = await ctx.db.query("predictions").collect();
+    const weights = await ctx.db.query("learnedWeights").collect();
+    const calibrationSnapshots = await ctx.db.query("calibrationSnapshots").collect();
+
+    const withOutcomes = predictions.filter((p) => p.actualOutcome !== null);
+    const withFeedback = predictions.filter((p) => p.userFeedback !== null);
+    const pendingOutcome = predictions.filter(
+      (p) =>
+        p.actualOutcome === null &&
+        p.marketCloseDate !== null &&
+        p.marketCloseDate < Date.now()
+    );
+
+    // Calculate average Brier score
+    const brierScores = withOutcomes
+      .map((p) => p.brierScore)
+      .filter((s): s is number => s !== null);
+    const avgBrierScore =
+      brierScores.length > 0
+        ? brierScores.reduce((a, b) => a + b, 0) / brierScores.length
+        : null;
+
+    // Get active weights
+    const activeWeights = weights.find((w) => w.isActive);
+
+    // Get latest calibration
+    const latestCalibration = calibrationSnapshots.sort(
+      (a, b) => b.createdAt - a.createdAt
+    )[0];
+
+    return {
+      totalPredictions: predictions.length,
+      predictionsWithOutcomes: withOutcomes.length,
+      predictionsWithFeedback: withFeedback.length,
+      predictionsPendingOutcome: pendingOutcome.length,
+      avgBrierScore,
+      weightVersions: weights.length,
+      activeWeightsVersion: activeWeights?.version ?? null,
+      latestCalibrationError: latestCalibration?.expectedCalibrationError ?? null,
+      readyToLearn: withOutcomes.length >= 50,
+      feedbackBreakdown: {
+        accurate: withFeedback.filter((p) => p.userFeedback === "accurate").length,
+        inaccurate: withFeedback.filter((p) => p.userFeedback === "inaccurate").length,
+        partial: withFeedback.filter((p) => p.userFeedback === "partial").length,
+      },
+    };
+  },
+});
+
+/**
+ * Get recent predictions (for UI display)
+ */
+export const getRecentPredictions = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 20;
+
+    return await ctx.db
+      .query("predictions")
+      .withIndex("by_created_at")
+      .order("desc")
+      .take(limit);
+  },
+});
+
+/**
+ * Get calibration curve data
+ */
+export const getCalibrationData = query({
+  args: {},
+  handler: async (ctx) => {
+    const predictions = await ctx.db
+      .query("predictions")
+      .collect();
+
+    const withOutcomes = predictions.filter((p) => p.actualOutcome !== null);
+
+    // Group by calibration bucket
+    const buckets: Record<string, { predicted: number[]; actual: boolean[] }> = {};
+
+    for (const pred of withOutcomes) {
+      const bucket = pred.calibrationBucket || "unknown";
+      if (!buckets[bucket]) {
+        buckets[bucket] = { predicted: [], actual: [] };
+      }
+      buckets[bucket].predicted.push(pred.predictedProbability);
+      buckets[bucket].actual.push(pred.actualOutcome!);
+    }
+
+    // Calculate stats for each bucket
+    const calibrationCurve = Object.entries(buckets)
+      .map(([range, data]) => ({
+        range,
+        predictedAvg:
+          data.predicted.reduce((a, b) => a + b, 0) / data.predicted.length,
+        actualRate:
+          data.actual.filter((x) => x).length / data.actual.length,
+        sampleSize: data.predicted.length,
+      }))
+      .sort((a, b) => {
+        const aStart = parseInt(a.range.split("-")[0]);
+        const bStart = parseInt(b.range.split("-")[0]);
+        return aStart - bStart;
+      });
+
+    // Calculate expected calibration error (ECE)
+    const totalSamples = withOutcomes.length;
+    const ece =
+      totalSamples > 0
+        ? calibrationCurve.reduce((sum, bucket) => {
+            const weight = bucket.sampleSize / totalSamples;
+            const error = Math.abs(bucket.predictedAvg - bucket.actualRate);
+            return sum + weight * error;
+          }, 0)
+        : 0;
+
+    return {
+      calibrationCurve,
+      expectedCalibrationError: ece,
+      totalPredictions: withOutcomes.length,
+    };
+  },
+});
+
+/**
+ * Get weight history for visualization
+ */
+export const getWeightHistory = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 10;
+
+    return await ctx.db
+      .query("learnedWeights")
+      .withIndex("by_created_at")
+      .order("desc")
+      .take(limit);
   },
 });

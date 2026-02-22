@@ -45,7 +45,7 @@ export default defineSchema({
   realtimePrices: defineTable({
     marketId: v.string(),
     tokenId: v.union(v.string(), v.null()),
-    price: v.union(v.number(), v.null()),
+    chance: v.union(v.number(), v.null()), // Market-implied probability (0-100)
     bid: v.union(v.number(), v.null()),
     ask: v.union(v.number(), v.null()),
     spread: v.union(v.number(), v.null()),
@@ -58,7 +58,7 @@ export default defineSchema({
 
   marketSentimentSnapshots: defineTable({
     polymarketMarketId: v.string(),
-    priceYes: v.union(v.number(), v.null()),
+    chanceYes: v.union(v.number(), v.null()), // YES outcome probability (0-1)
     spread: v.union(v.number(), v.null()),
     volume: v.union(v.number(), v.null()),
     liquidity: v.union(v.number(), v.null()),
@@ -124,7 +124,7 @@ export default defineSchema({
     yesAsk: v.union(v.number(), v.null()),
     noBid: v.union(v.number(), v.null()),
     noAsk: v.union(v.number(), v.null()),
-    lastPrice: v.union(v.number(), v.null()),
+    lastChance: v.union(v.number(), v.null()), // Last traded probability (0-100)
     volume: v.union(v.number(), v.null()),
     liquidity: v.union(v.number(), v.null()),
     url: v.string(),
@@ -206,4 +206,223 @@ export default defineSchema({
     .index("by_keyword", ["keyword"])
     .index("by_query_hash", ["queryHash"])
     .index("by_stored_at", ["storedAt"]),
+
+  youtubeVideos: defineTable({
+    videoId: v.string(),
+    title: v.string(),
+    description: v.union(v.string(), v.null()),
+    channelTitle: v.string(),
+    channelId: v.string(),
+    publishedAt: v.number(),
+    url: v.string(),
+    thumbnailUrl: v.union(v.string(), v.null()),
+    viewCount: v.union(v.number(), v.null()),
+    likeCount: v.union(v.number(), v.null()),
+    commentCount: v.union(v.number(), v.null()),
+    relevanceScore: v.union(v.number(), v.null()),
+    queryHash: v.string(),
+    storedAt: v.number(),
+  })
+    .index("by_video_id", ["videoId"])
+    .index("by_query_hash", ["queryHash"])
+    .index("by_channel_id", ["channelId"])
+    .index("by_published_at", ["publishedAt"]),
+
+  // ============================================
+  // LEARNING SYSTEM TABLES
+  // ============================================
+
+  // Track predictions with source contributions for learning
+  predictions: defineTable({
+    // Link to original query
+    queryId: v.optional(v.id("queriesLog")),
+    question: v.string(),
+
+    // The prediction
+    predictedProbability: v.number(), // 0-1 scale
+    confidence: v.number(), // 0-1 scale
+
+    // Source contributions (what each source said, for learning weights)
+    sourceContributions: v.object({
+      polymarket: v.optional(
+        v.object({
+          probability: v.number(),
+          marketId: v.string(),
+          volume: v.optional(v.number()),
+          liquidity: v.optional(v.number()),
+        })
+      ),
+      kalshi: v.optional(
+        v.object({
+          probability: v.number(),
+          ticker: v.string(),
+          volume: v.optional(v.number()),
+        })
+      ),
+      news: v.optional(
+        v.object({
+          sentiment: v.number(), // -1 to 1
+          articleCount: v.number(),
+          avgRelevance: v.optional(v.number()),
+        })
+      ),
+      twitter: v.optional(
+        v.object({
+          sentiment: v.number(),
+          tweetCount: v.number(),
+          totalEngagement: v.optional(v.number()),
+        })
+      ),
+      reddit: v.optional(
+        v.object({
+          sentiment: v.number(),
+          postCount: v.number(),
+          totalScore: v.optional(v.number()),
+        })
+      ),
+      youtube: v.optional(
+        v.object({
+          sentiment: v.number(),
+          videoCount: v.number(),
+          totalViews: v.optional(v.number()),
+        })
+      ),
+    }),
+
+    // Market reference for outcome tracking
+    primaryMarketId: v.union(v.string(), v.null()),
+    primaryMarketSource: v.union(v.string(), v.null()), // "polymarket" | "kalshi"
+    marketCloseDate: v.union(v.number(), v.null()),
+
+    // Outcome (filled in when market resolves)
+    actualOutcome: v.union(v.boolean(), v.null()), // true = YES, false = NO
+    outcomeRecordedAt: v.union(v.number(), v.null()),
+
+    // Learning metrics
+    brierScore: v.union(v.number(), v.null()), // (predicted - actual)², lower is better
+    calibrationBucket: v.union(v.string(), v.null()), // "0-10", "10-20", etc for calibration curves
+
+    // User feedback (faster signal than waiting for market resolution)
+    userFeedback: v.union(v.string(), v.null()), // "accurate" | "inaccurate" | "partial" | null
+    userFeedbackAt: v.union(v.number(), v.null()),
+    userFeedbackNote: v.union(v.string(), v.null()),
+
+    createdAt: v.number(),
+  })
+    .index("by_primary_market", ["primaryMarketId"])
+    .index("by_outcome_pending", ["actualOutcome", "marketCloseDate"])
+    .index("by_created_at", ["createdAt"])
+    .index("by_user_feedback", ["userFeedback"]),
+
+  // Store learned weights over time (versioned for rollback)
+  learnedWeights: defineTable({
+    version: v.number(),
+
+    // The learned weights (sum to 1)
+    weights: v.object({
+      polymarket: v.number(),
+      kalshi: v.number(),
+      news: v.number(),
+      twitter: v.number(),
+      reddit: v.number(),
+      youtube: v.number(),
+    }),
+
+    // Training metadata
+    trainingSize: v.number(), // How many predictions used
+    avgBrierScore: v.number(), // Average prediction error
+    calibrationError: v.union(v.number(), v.null()), // Expected calibration error
+
+    // Performance by source (which sources were most accurate)
+    sourcePerformance: v.optional(
+      v.object({
+        polymarket: v.object({ avgError: v.number(), sampleSize: v.number() }),
+        kalshi: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        news: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        twitter: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        reddit: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+        youtube: v.optional(v.object({ avgError: v.number(), sampleSize: v.number() })),
+      })
+    ),
+
+    // Status
+    isActive: v.boolean(), // Currently in use?
+    notes: v.union(v.string(), v.null()),
+
+    createdAt: v.number(),
+  })
+    .index("by_version", ["version"])
+    .index("by_active", ["isActive"])
+    .index("by_created_at", ["createdAt"]),
+
+  // Track calibration over time (are we overconfident/underconfident?)
+  calibrationSnapshots: defineTable({
+    // Bucket data: for predictions in X% range, what % actually happened?
+    buckets: v.array(
+      v.object({
+        range: v.string(), // "0-10", "10-20", etc
+        predictedAvg: v.number(), // Average predicted probability in this bucket
+        actualRate: v.number(), // Actual outcome rate
+        sampleSize: v.number(),
+      })
+    ),
+
+    // Overall metrics
+    expectedCalibrationError: v.number(), // Lower is better calibrated
+    overconfidenceScore: v.number(), // Positive = overconfident, negative = underconfident
+    totalPredictions: v.number(),
+
+    createdAt: v.number(),
+  }).index("by_created_at", ["createdAt"]),
+
+  // Normalized evidence layer across all providers/content types.
+  evidenceItems: defineTable({
+    claimKey: v.string(),
+    sourceType: v.string(), // news|twitter|reddit|youtube|market|trends|perplexity|...
+    sourceId: v.string(),
+    url: v.union(v.string(), v.null()),
+    title: v.union(v.string(), v.null()),
+    content: v.union(v.string(), v.null()),
+    publishedAt: v.union(v.number(), v.null()),
+    ingestedAt: v.number(),
+    relevanceScore: v.union(v.number(), v.null()),
+    stanceScore: v.union(v.number(), v.null()),
+    credibilityScore: v.union(v.number(), v.null()),
+    freshnessScore: v.union(v.number(), v.null()),
+    dedupeHash: v.string(),
+    metadata: v.optional(v.any()),
+  })
+    .index("by_claim_key", ["claimKey"])
+    .index("by_dedupe_hash", ["dedupeHash"])
+    .index("by_source_type", ["sourceType"])
+    .index("by_ingested_at", ["ingestedAt"]),
+
+  // Tracks end-to-end fact-check execution runs for observability/debugging.
+  factCheckRuns: defineTable({
+    question: v.string(),
+    mode: v.union(v.literal("fast"), v.literal("deep")),
+    status: v.union(v.literal("started"), v.literal("completed"), v.literal("failed")),
+    model: v.union(v.string(), v.null()),
+    startedAt: v.number(),
+    completedAt: v.union(v.number(), v.null()),
+    durationMs: v.union(v.number(), v.null()),
+    error: v.union(v.string(), v.null()),
+    bestMarketId: v.union(v.string(), v.null()),
+    confidence: v.union(v.number(), v.null()),
+    providerFlags: v.optional(v.any()),
+    metrics: v.optional(v.any()),
+  })
+    .index("by_started_at", ["startedAt"])
+    .index("by_status", ["status"]),
+
+  runEvents: defineTable({
+    runId: v.id("factCheckRuns"),
+    stage: v.string(),
+    status: v.union(v.literal("started"), v.literal("progress"), v.literal("completed"), v.literal("failed")),
+    message: v.string(),
+    meta: v.optional(v.any()),
+    createdAt: v.number(),
+  })
+    .index("by_run", ["runId"])
+    .index("by_created_at", ["createdAt"]),
 });

@@ -9,11 +9,18 @@ import TwitterFeed from "./TwitterFeed";
 import RedditFeed from "./RedditFeed";
 import TikTokFeed from "./TikTokFeed";
 import InstagramFeed from "./InstagramFeed";
+import YouTubeFeed from "./YouTubeFeed";
 import GoogleTrendsFeed from "./GoogleTrendsFeed";
 import KalshiMarkets from "./KalshiMarkets";
 import MarketsSection from "./MarketsSection";
 import DataSourceOverview from "./DataSourceOverview";
-import { TrendingUp, TrendingDown, BarChart3, ExternalLink, Clock, AlertCircle, ChevronDown, ChevronUp, Grid3x3, List } from "lucide-react";
+import { TrendingUp, TrendingDown, BarChart3, ExternalLink, Clock, AlertCircle, ChevronDown, ChevronUp, Grid3x3, List, Activity, AlertTriangle, Info, Shield, CheckCircle } from "lucide-react";
+import { AnomalyDisplay } from "./AnomalyDisplay";
+import { EnsembleDisplay } from "./EnsembleDisplay";
+import { FusionDisplay } from "./FusionDisplay";
+import { MomentumDisplay } from "./MomentumDisplay";
+import { GraphDisplay } from "./GraphDisplay";
+import { CascadeDisplay } from "./CascadeDisplay";
 
 interface ResultCardProps {
   result: any;
@@ -46,7 +53,7 @@ const itemVariants = {
 };
 
 export default function ResultCard({ result, showDebug }: ResultCardProps) {
-  const { parsedClaim, answer, bestMarket, alternatives, marketSentiment, newsArticles, tweets, redditPosts, tiktokVideos, instagramPosts, googleTrends, kalshiMarkets, expiringMarkets, targetDate } = result;
+  const { parsedClaim, answer, bestMarket, alternatives, marketSentiment, newsArticles, tweets, redditPosts, tiktokVideos, instagramPosts, youtubeVideos, googleTrends, kalshiMarkets, expiringMarkets, targetDate, sentiment, risk, fusion, momentum, anomalies, ensemble, graph, cascade, insights } = result;
   const [expandedMarkets, setExpandedMarkets] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [activeSourceTab, setActiveSourceTab] = useState<string | null>(null);
@@ -71,9 +78,33 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
     { key: "reddit", label: "Reddit", component: redditPosts && redditPosts.length > 0 ? <RedditFeed posts={redditPosts} /> : null, count: redditPosts?.length || 0 },
     { key: "tiktok", label: "TikTok", component: tiktokVideos && tiktokVideos.length > 0 ? <TikTokFeed videos={tiktokVideos} /> : null, count: tiktokVideos?.length || 0 },
     { key: "instagram", label: "Instagram", component: instagramPosts && instagramPosts.length > 0 ? <InstagramFeed posts={instagramPosts} /> : null, count: instagramPosts?.length || 0 },
+    { key: "youtube", label: "YouTube", component: youtubeVideos && youtubeVideos.length > 0 ? <YouTubeFeed videos={youtubeVideos} /> : null, count: youtubeVideos?.length || 0 },
     { key: "googletrends", label: "Google Trends", component: googleTrends && googleTrends.length > 0 ? <GoogleTrendsFeed trends={googleTrends} /> : null, count: googleTrends?.length || 0 },
     { key: "kalshi", label: "Kalshi", component: kalshiMarkets && kalshiMarkets.length > 0 ? <KalshiMarkets markets={kalshiMarkets} /> : null, count: kalshiMarkets?.length || 0 },
   ].filter(ds => ds.count > 0);
+
+  const totalEvidenceCount = dataSources.reduce((sum, ds) => sum + ds.count, 0);
+  const citationCount = (newsArticles?.length || 0) + (kalshiMarkets?.length || 0) + (googleTrends?.length || 0);
+  const confidenceValue = answer?.confidence ?? 0;
+  const weakEvidenceReasons: string[] = [];
+  if (confidenceValue < 0.5) weakEvidenceReasons.push("model confidence below 50%.");
+  if (citationCount < 3) weakEvidenceReasons.push("fewer than 3 citation-backed sources.");
+  if (totalEvidenceCount < 5) weakEvidenceReasons.push("fewer than 5 total corroborating signals.");
+  const hasWeakEvidence = weakEvidenceReasons.length > 0;
+  const citations = [
+    ...(newsArticles || []).slice(0, 5).map((n: any) => ({
+      label: n.source || "News",
+      title: n.title,
+      url: n.url,
+      snippet: n.snippet,
+    })),
+    ...(kalshiMarkets || []).slice(0, 2).map((k: any) => ({
+      label: "Kalshi",
+      title: k.title,
+      url: k.url,
+      snippet: null,
+    })),
+  ].filter((c) => c.url);
 
   return (
     <motion.div 
@@ -90,6 +121,7 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
           redditPosts={redditPosts}
           tiktokVideos={tiktokVideos}
           instagramPosts={instagramPosts}
+          youtubeVideos={youtubeVideos}
           googleTrends={googleTrends}
           kalshiMarkets={kalshiMarkets}
           bestMarket={bestMarket}
@@ -97,39 +129,140 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
         />
       </motion.div>
 
+      {/* Evidence & Citation Status */}
+      <motion.div
+        variants={itemVariants}
+        className={`rounded-xl p-4 border ${hasWeakEvidence ? "bg-amber-500/10 border-amber-500/30" : "bg-emerald-500/10 border-emerald-500/30"}`}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold text-white">Evidence Status</div>
+            <div className="text-xs text-[#aaa] mt-1">
+              {citationCount} citation-backed sources • {totalEvidenceCount} total signals
+            </div>
+            {hasWeakEvidence ? (
+              <div className="text-sm text-amber-300 mt-2">
+                Weak evidence state: treat this answer as directional, not definitive.
+                <ul className="mt-2 list-disc pl-5 text-xs text-amber-200/90 space-y-1">
+                  {weakEvidenceReasons.map((reason, idx) => (
+                    <li key={idx}>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div className="text-sm text-emerald-300 mt-2">
+                Evidence quality is acceptable for a high-confidence read.
+              </div>
+            )}
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-[#888]">Model confidence</div>
+            <div className={`text-lg font-bold ${hasWeakEvidence ? "text-amber-300" : "text-emerald-300"}`}>
+              {(confidenceValue * 100).toFixed(0)}%
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {citations.length > 0 && (
+        <motion.div
+          variants={itemVariants}
+          className="rounded-xl p-4 border bg-[#0a0a0a] border-[#1a1a1a]"
+        >
+          <div className="text-sm font-semibold text-white mb-3">Top Citations</div>
+          <div className="space-y-2">
+            {citations.slice(0, 4).map((c, idx) => (
+              <a
+                key={`${c.url}-${idx}`}
+                href={c.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block p-2 rounded border border-[#1a1a1a] hover:border-emerald-500/40 hover:bg-[#111] transition-colors"
+              >
+                <div className="text-xs text-emerald-400">{c.label}</div>
+                <div className="text-sm text-white line-clamp-1">{c.title}</div>
+                {c.snippet && <div className="text-xs text-[#888] line-clamp-2 mt-1">{c.snippet}</div>}
+              </a>
+            ))}
+          </div>
+        </motion.div>
+      )}
+
       {/* Top Summary Bar - Key Metrics at a Glance */}
       <motion.div
         variants={itemVariants}
         className="bg-gradient-to-r from-[#0a0a0a] to-[#111] border border-[#1a1a1a] rounded-xl p-5 shadow-lg shadow-black/10"
       >
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <span className="px-2.5 py-1 rounded-full text-xs border border-[#2a3441] bg-[#111] text-[#ddd]">
+            Citations: {citationCount}
+          </span>
+          <span className="px-2.5 py-1 rounded-full text-xs border border-[#2a3441] bg-[#111] text-[#ddd]">
+            Evidence signals: {totalEvidenceCount}
+          </span>
+          {hasWeakEvidence ? (
+            <span className="px-2.5 py-1 rounded-full text-xs border border-amber-500/40 bg-amber-500/10 text-amber-300">
+              Weak evidence
+            </span>
+          ) : (
+            <span className="px-2.5 py-1 rounded-full text-xs border border-emerald-500/40 bg-emerald-500/10 text-emerald-300">
+              Evidence OK
+            </span>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Confidence */}
-          <div className="flex items-center justify-between p-3 bg-[#111] rounded-lg border border-[#1a1a1a]">
+          <motion.div 
+            className="flex items-center justify-between p-3 bg-[#111] rounded-lg border border-[#1a1a1a] hover:border-emerald-500/50 hover:bg-[#0f1419] cursor-pointer transition-all group"
+            whileHover={{ scale: 1.05, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            title="Overall confidence in the analysis"
+          >
             <div>
-              <div className="text-xs text-[#888] uppercase tracking-wide mb-1">Confidence</div>
-              <div className="text-2xl font-bold text-white">
+              <div className="text-xs text-[#888] uppercase tracking-wide mb-1 group-hover:text-emerald-400 transition-colors">Confidence</div>
+              <motion.div 
+                className="text-2xl font-bold text-white"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.2, type: "spring", stiffness: 200 }}
+              >
                 {(answer.confidence * 100).toFixed(0)}%
-              </div>
+              </motion.div>
             </div>
-            <BarChart3 className="w-8 h-8 text-emerald-500/50" />
-          </div>
+            <BarChart3 className="w-8 h-8 text-emerald-500/50 group-hover:text-emerald-400 transition-colors" />
+          </motion.div>
 
           {/* Market Probability */}
-          <div className={`flex items-center justify-between p-3 rounded-lg border ${
-            answer.probYes !== null
-              ? (answer.probYes > 0.5 
-                  ? "bg-emerald-500/10 border-emerald-500/30" 
-                  : "bg-red-500/10 border-red-500/30")
-              : "bg-[#111] border-[#1a1a1a]"
-          }`}>
+          <motion.div 
+            className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all group ${
+              answer.probYes !== null
+                ? (answer.probYes > 50 
+                    ? "bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-500/50 hover:bg-emerald-500/15" 
+                    : "bg-red-500/10 border-red-500/30 hover:border-red-500/50 hover:bg-red-500/15")
+                : "bg-[#111] border-[#1a1a1a] hover:border-[#2a3441]"
+            }`}
+            whileHover={{ scale: 1.05, y: -2 }}
+            whileTap={{ scale: 0.98 }}
+            title={`Market-implied probability: ${answer.probYes !== null ? answer.probYes.toFixed(1) + '%' : 'Not available'}`}
+          >
             <div>
-              <div className="text-xs text-[#888] uppercase tracking-wide mb-1">Probability</div>
+              <div className={`text-xs uppercase tracking-wide mb-1 transition-colors ${
+                answer.probYes !== null
+                  ? (answer.probYes > 50 ? "text-[#888] group-hover:text-emerald-400" : "text-[#888] group-hover:text-red-400")
+                  : "text-[#888]"
+              }`}>Probability</div>
               {answer.probYes !== null ? (
-                <div className={`text-2xl font-bold ${
-                  answer.probYes > 0.5 ? 'text-emerald-500' : 'text-red-500'
-                }`}>
+                <motion.div 
+                  className={`text-2xl font-bold ${
+                    answer.probYes > 0.5 ? 'text-emerald-500' : 'text-red-500'
+                  }`}
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ delay: 0.3, type: "spring", stiffness: 200 }}
+                >
                   {(answer.probYes * 100).toFixed(1)}%
-                </div>
+                </motion.div>
               ) : (
                 <div className="text-lg font-semibold text-[#666]">
                   Unavailable
@@ -138,14 +271,24 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
             </div>
             {answer.probYes !== null ? (
               answer.probYes > 0.5 ? (
-                <TrendingUp className="w-8 h-8 text-emerald-500/50" />
+                <motion.div
+                  animate={{ y: [0, -3, 0] }}
+                  transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                >
+                  <TrendingUp className="w-8 h-8 text-emerald-500/50 group-hover:text-emerald-400 transition-colors" />
+                </motion.div>
               ) : (
-                <TrendingDown className="w-8 h-8 text-red-500/50" />
+                <motion.div
+                  animate={{ y: [0, 3, 0] }}
+                  transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                >
+                  <TrendingDown className="w-8 h-8 text-red-500/50 group-hover:text-red-400 transition-colors" />
+                </motion.div>
               )
             ) : (
               <AlertCircle className="w-8 h-8 text-[#666]/50" />
             )}
-          </div>
+          </motion.div>
 
           {/* Best Market Match */}
           {bestMarket && (
@@ -219,7 +362,7 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                 </span>
               </div>
               <p className="text-lg text-white font-medium">
-                Traders are pricing this at <span className="text-emerald-400 font-bold">{(answer.probYes * 100).toFixed(1)}%</span> probability
+                Traders are pricing this at <span className="text-emerald-400 font-bold">{answer.probYes.toFixed(1)}%</span> probability
                 {bestMarket.evidence?.volume && (
                   <span className="text-[#888] text-base font-normal">
                     {" "}with ${(bestMarket.evidence.volume / 1000).toFixed(0)}K in volume
@@ -234,15 +377,51 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                   </span>
                   <span className="text-[#444]">{" • "}</span>
                   <span className="tabular-nums text-[#888]">
-                    1h: {marketSentiment.delta1h !== null ? `${marketSentiment.delta1h >= 0 ? "+" : ""}${(marketSentiment.delta1h * 100).toFixed(1)}pp` : "N/A"}
+                    1h: {marketSentiment.delta1h !== null ? `${marketSentiment.delta1h >= 0 ? "+" : ""}${marketSentiment.delta1h.toFixed(1)}pp` : "N/A"}
                   </span>
                   <span className="text-[#444]">{" • "}</span>
                   <span className="tabular-nums text-[#888]">
-                    24h: {marketSentiment.delta24h !== null ? `${marketSentiment.delta24h >= 0 ? "+" : ""}${(marketSentiment.delta24h * 100).toFixed(1)}pp` : "N/A"}
+                    24h: {marketSentiment.delta24h !== null ? `${marketSentiment.delta24h >= 0 ? "+" : ""}${marketSentiment.delta24h.toFixed(1)}pp` : "N/A"}
                   </span>
                 </div>
               )}
             </div>
+          )}
+
+          {/* AI Reasoning - Show how the AI arrived at its answer */}
+          {answer.reasoning && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 bg-[#0a0a0a] border border-[#2a3441] rounded-lg"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="w-4 h-4 text-blue-400" />
+                <span className="text-sm font-semibold text-blue-400 uppercase tracking-wide">
+                  Analysis Reasoning
+                </span>
+              </div>
+              <div className="text-sm text-[#999] leading-relaxed whitespace-pre-line">
+                {answer.reasoning}
+              </div>
+            </motion.div>
+          )}
+
+          {/* Key Insight - Single most important takeaway */}
+          {answer.keyInsight && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 bg-gradient-to-r from-amber-500/10 to-transparent border border-amber-500/30 rounded-lg"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle className="w-4 h-4 text-amber-400" />
+                <span className="text-sm font-semibold text-amber-400 uppercase tracking-wide">
+                  Key Insight
+                </span>
+              </div>
+              <p className="text-[#ddd] font-medium">{answer.keyInsight}</p>
+            </motion.div>
           )}
 
           {/* Main Answer Text - Clean, Readable Format */}
@@ -263,6 +442,30 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
               ))}
             </div>
           </div>
+
+          {/* Caveats - Important limitations */}
+          {answer.caveats && answer.caveats.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-6 p-4 bg-[#1a0a0a] border border-red-900/30 rounded-lg"
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <AlertTriangle className="w-4 h-4 text-red-400" />
+                <span className="text-sm font-semibold text-red-400 uppercase tracking-wide">
+                  Important Caveats
+                </span>
+              </div>
+              <ul className="space-y-1">
+                {answer.caveats.map((caveat: string, idx: number) => (
+                  <li key={idx} className="flex items-start gap-2 text-sm text-[#999]">
+                    <span className="text-red-400 mt-1">•</span>
+                    <span>{caveat}</span>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          )}
 
           {/* Best Market Link - Prominent */}
           {bestMarket && bestMarket.url && (
@@ -291,6 +494,159 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
         <CollapsibleClaim parsedClaim={parsedClaim} />
       </motion.div>
 
+      {/* Algorithm Results - Applied Automatically */}
+      {(sentiment || risk || fusion || momentum || anomalies || ensemble || graph || cascade || insights) && (
+        <motion.div variants={itemVariants} className="space-y-6">
+          <div className="border-t border-[#1a1a1a] pt-6">
+            <h2 className="text-xl font-semibold text-white mb-4">Advanced Analysis</h2>
+            
+            {/* Key Insights */}
+            {insights && insights.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-gradient-to-r from-emerald-500/10 to-transparent border border-emerald-500/30 rounded-xl p-6 mb-6"
+              >
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-emerald-400" />
+                  Key Insights
+                </h3>
+                <ul className="space-y-2">
+                  {insights.map((insight: string, idx: number) => (
+                    <li key={idx} className="flex items-start gap-3">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 mt-2 flex-shrink-0" />
+                      <span className="text-gray-300">{insight}</span>
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            )}
+
+            {/* Sentiment & Risk Grid */}
+            {(sentiment || risk) && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                {sentiment && (
+                  <div className="bg-[#1c2127] border border-[#2a3441] rounded-xl p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={sentiment.overall === "positive" ? "text-emerald-400" : sentiment.overall === "negative" ? "text-red-400" : "text-yellow-400"}>
+                        {sentiment.overall === "positive" ? <TrendingUp className="w-5 h-5" /> : sentiment.overall === "negative" ? <TrendingDown className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
+                      </div>
+                      <h3 className="text-lg font-semibold text-white">Sentiment Analysis</h3>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm text-gray-400">Overall Sentiment</span>
+                          <span className={`text-lg font-bold ${sentiment.overall === "positive" ? "text-emerald-400" : sentiment.overall === "negative" ? "text-red-400" : "text-yellow-400"}`}>
+                            {sentiment.overall.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="w-full bg-[#2a3441] rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full transition-all ${
+                              sentiment.score > 0 ? "bg-emerald-400" : sentiment.score < 0 ? "bg-red-400" : "bg-yellow-400"
+                            }`}
+                            style={{ width: `${Math.abs(sentiment.score) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-4 pt-4 border-t border-[#2a3441]">
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">News</div>
+                          <div className="text-sm font-medium text-white">
+                            {(sentiment.breakdown.news * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">Social</div>
+                          <div className="text-sm font-medium text-white">
+                            {(sentiment.breakdown.social * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-gray-400 mb-1">Market</div>
+                          <div className="text-sm font-medium text-white">
+                            {(sentiment.breakdown.market * 100).toFixed(0)}%
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {risk && (
+                  <div className="bg-[#1c2127] border border-[#2a3441] rounded-xl p-6">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className={risk.overall === "high" ? "text-red-400" : risk.overall === "medium" ? "text-yellow-400" : "text-emerald-400"}>
+                        {risk.overall === "high" ? <AlertTriangle className="w-5 h-5" /> : risk.overall === "medium" ? <Info className="w-5 h-5" /> : <Shield className="w-5 h-5" />}
+                      </div>
+                      <h3 className="text-lg font-semibold text-white">Risk Assessment</h3>
+                    </div>
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm text-gray-400">Overall Risk</span>
+                          <span className={`text-lg font-bold ${risk.overall === "high" ? "text-red-400" : risk.overall === "medium" ? "text-yellow-400" : "text-emerald-400"}`}>
+                            {risk.overall.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="w-full bg-[#2a3441] rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full transition-all ${
+                              risk.score > 0.6 ? "bg-red-400" : risk.score > 0.4 ? "bg-yellow-400" : "bg-emerald-400"
+                            }`}
+                            style={{ width: `${risk.score * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      {risk.factors && risk.factors.length > 0 && (
+                        <div className="space-y-2 pt-4 border-t border-[#2a3441]">
+                          <div className="text-sm font-medium text-gray-300 mb-3">Risk Factors</div>
+                          {risk.factors.slice(0, 3).map((factor: any, idx: number) => (
+                            <div
+                              key={idx}
+                              className={`p-3 rounded-lg border ${
+                                factor.level === "high" ? "text-red-400 border-red-400/20 bg-red-400/10" :
+                                factor.level === "medium" ? "text-yellow-400 border-yellow-400/20 bg-yellow-400/10" :
+                                "text-emerald-400 border-emerald-400/20 bg-emerald-400/10"
+                              }`}
+                            >
+                              <div className="flex justify-between items-start mb-1">
+                                <span className="text-sm font-medium">{factor.name}</span>
+                                <span className="text-xs font-semibold">{factor.level.toUpperCase()}</span>
+                              </div>
+                              <p className="text-xs text-gray-400 mt-1">{factor.description}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Fusion, Ensemble, Anomalies Grid */}
+            {(fusion || ensemble || anomalies) && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {fusion && <FusionDisplay fusion={fusion} />}
+                {ensemble && <EnsembleDisplay ensemble={ensemble} />}
+                {anomalies && <AnomalyDisplay anomalies={anomalies} />}
+              </div>
+            )}
+
+            {/* Momentum, Graph, Cascade Analysis */}
+            {(momentum || graph || cascade) && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                {momentum && <MomentumDisplay momentum={momentum} />}
+                {cascade && <CascadeDisplay cascade={cascade} />}
+                {graph && <GraphDisplay graph={graph} />}
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       {/* Data Sources - Organized View */}
       {dataSources.length > 0 && (
         <motion.div variants={itemVariants} className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl overflow-hidden">
@@ -309,7 +665,7 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                   className={`p-2 rounded-lg transition-colors ${
                     viewMode === "grid"
                       ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                      : "bg-[#0a0a0a] text-[#666] border border-[#1a1a1a] hover:border-[#2a2a2a]"
+                      : "bg-[#0a0a0a] text-[#666] border border-[#1a1a1a] hover:border-[#2a3441]"
                   }`}
                 >
                   <Grid3x3 className="w-4 h-4" />
@@ -319,7 +675,7 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                   className={`p-2 rounded-lg transition-colors ${
                     viewMode === "list"
                       ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                      : "bg-[#0a0a0a] text-[#666] border border-[#1a1a1a] hover:border-[#2a2a2a]"
+                      : "bg-[#0a0a0a] text-[#666] border border-[#1a1a1a] hover:border-[#2a3441]"
                   }`}
                 >
                   <List className="w-4 h-4" />
@@ -334,7 +690,7 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                   activeSourceTab === null
                     ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                    : "bg-[#0a0a0a] text-[#888] border border-[#1a1a1a] hover:border-[#2a2a2a] hover:text-white"
+                    : "bg-[#0a0a0a] text-[#888] border border-[#1a1a1a] hover:border-[#2a3441] hover:text-white"
                 }`}
               >
                 All ({dataSources.reduce((sum, ds) => sum + ds.count, 0)})
@@ -346,7 +702,7 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
                     activeSourceTab === source.key
                       ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                      : "bg-[#0a0a0a] text-[#888] border border-[#1a1a1a] hover:border-[#2a2a2a] hover:text-white"
+                      : "bg-[#0a0a0a] text-[#888] border border-[#1a1a1a] hover:border-[#2a3441] hover:text-white"
                   }`}
                 >
                   {source.label} ({source.count})
@@ -528,11 +884,11 @@ export default function ResultCard({ result, showDebug }: ResultCardProps) {
                         </span>
                       </div>
                       <div className="flex items-center gap-4 text-sm text-[#888]">
-                        {bestMarket.evidence?.priceYes !== null && bestMarket.evidence?.priceYes !== undefined && (
+                        {bestMarket.evidence?.chanceYes !== null && bestMarket.evidence?.chanceYes !== undefined && (
                           <span className={`font-medium ${
-                            bestMarket.evidence.priceYes > 0.5 ? 'text-emerald-500' : 'text-red-500'
+                            bestMarket.evidence.chanceYes > 0.5 ? 'text-emerald-500' : 'text-red-500'
                           }`}>
-                            {(bestMarket.evidence.priceYes * 100).toFixed(1)}%
+                            {(bestMarket.evidence.chanceYes * 100).toFixed(1)}%
                           </span>
                         )}
                         {bestMarket.matchScore !== undefined && (
