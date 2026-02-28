@@ -36,6 +36,7 @@ const internalApi = internal as {
     retrieveCandidates: { retrieveCandidates: any };
     ingestMarkets: { ingestMarkets: any };
     retrieveNews: { retrieveNews: any };
+    retrieveCryptoNewsContext: { retrieveCryptoNewsContext: any };
     retrieveTwitter: { retrieveTwitter: any };
     retrieveReddit: { retrieveReddit: any };
     retrieveTikTok: { retrieveTikTok: any };
@@ -156,6 +157,18 @@ interface GoogleTrend {
   trendScore: number | null;
 }
 
+interface CryptoNewsContext {
+  fearGreed: {
+    value: number | null;
+    label: string | null;
+  } | null;
+  trending: Array<{
+    topic: string;
+    count: number | null;
+    sentiment: string | null;
+  }>;
+}
+
 interface FactCheckResult {
   parsedClaim: ParsedClaim;
   answer: {
@@ -167,6 +180,7 @@ interface FactCheckResult {
   bestMarket: MarketWithEvidence | null;
   alternatives: MarketWithEvidence[];
   newsArticles?: NewsArticle[]; // Relevant news articles
+  cryptoNewsContext?: CryptoNewsContext;
   tweets?: Tweet[]; // Relevant tweets
   redditPosts?: RedditPost[]; // Relevant Reddit posts
   tiktokVideos?: TikTokVideo[]; // Relevant TikTok videos
@@ -200,6 +214,7 @@ export const factCheck = action({
 
     // Step 1.5: Retrieve news articles, social media posts, and Kalshi markets (in parallel for performance)
     let newsArticles: NewsArticle[] = [];
+    let cryptoNewsContext: CryptoNewsContext | null = null;
     let tweets: Tweet[] = [];
     let redditPosts: RedditPost[] = [];
     let tiktokVideos: TikTokVideo[] = [];
@@ -215,6 +230,16 @@ export const factCheck = action({
       console.log(`[factCheck] Retrieved ${newsArticles.length} news articles`);
     } catch (error) {
       console.error("[factCheck] Error retrieving news:", error);
+    }
+
+    try {
+      cryptoNewsContext = await ctx.runAction(
+        internalApi.actions.retrieveCryptoNewsContext.retrieveCryptoNewsContext,
+        { hours: 24, limit: 10 }
+      );
+      console.log("[factCheck] Retrieved crypto news context");
+    } catch (error) {
+      console.error("[factCheck] Error retrieving crypto news context:", error);
     }
 
     try {
@@ -535,6 +560,7 @@ Best Available Market:
 ${topMarketsForAnalysis.length > 1 ? `\nOther Related Markets:\n${topMarketsForAnalysis.slice(1).map((m, i) => `${i + 1}. ${m.title} - ${m.probability} probability (${m.matchScore} match)`).join("\n")}` : ""}
 
 ${newsArticles.length > 0 ? `\nRelevant News Articles:\n${newsArticles.slice(0, 5).map((article, i) => `${i + 1}. ${article.title} (${article.source}) - ${article.snippet || "No snippet available"}`).join("\n\n")}` : ""}
+${cryptoNewsContext ? `\nCrypto Market Context:\nFear & Greed: ${cryptoNewsContext.fearGreed?.value ?? "N/A"} (${cryptoNewsContext.fearGreed?.label ?? "N/A"})\nTrending: ${cryptoNewsContext.trending.slice(0, 5).map((t) => t.topic).join(", ")}` : ""}
 
 ${tweets.length > 0 ? `\nRelevant Tweets:\n${tweets.slice(0, 5).map((tweet, i) => `${i + 1}. @${tweet.authorUsername}: "${tweet.text.substring(0, 200)}${tweet.text.length > 200 ? "..." : ""}" (${tweet.likeCount || 0} likes)`).join("\n\n")}` : ""}
 
@@ -661,6 +687,7 @@ Best Matching Market:
 ${topMarketsForAnalysis.length > 1 ? `\nOther Relevant Markets:\n${topMarketsForAnalysis.slice(1).map((m, i) => `${i + 1}. ${m.title} - ${m.probability} probability (${m.matchScore} match)`).join("\n")}` : ""}
 
 ${newsArticles.length > 0 ? `\nRelevant News Articles:\n${newsArticles.slice(0, 5).map((article, i) => `${i + 1}. ${article.title} (${article.source}) - ${article.snippet || "No snippet available"}`).join("\n\n")}` : ""}
+${cryptoNewsContext ? `\nCrypto Market Context:\nFear & Greed: ${cryptoNewsContext.fearGreed?.value ?? "N/A"} (${cryptoNewsContext.fearGreed?.label ?? "N/A"})\nTrending: ${cryptoNewsContext.trending.slice(0, 5).map((t) => t.topic).join(", ")}` : ""}
 
 ${tweets.length > 0 ? `\nRelevant Tweets:\n${tweets.slice(0, 5).map((tweet, i) => `${i + 1}. @${tweet.authorUsername}: "${tweet.text.substring(0, 200)}${tweet.text.length > 200 ? "..." : ""}" (${tweet.likeCount || 0} likes)`).join("\n\n")}` : ""}
 
@@ -837,6 +864,7 @@ Based on this market data, news context, social media sentiment from multiple pl
         mismatchFlags: m.mismatchFlags || [],
       })),
       ...(newsArticles.length > 0 && { newsArticles }),
+      ...(cryptoNewsContext && { cryptoNewsContext }),
       ...(tweets.length > 0 && { tweets }),
       ...(redditPosts.length > 0 && { redditPosts }),
       ...(tiktokVideos.length > 0 && { tiktokVideos }),

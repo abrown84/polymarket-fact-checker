@@ -5,11 +5,12 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { hashString, ParsedClaim } from "../utils";
 
+const CRYPTO_NEWS_BASE = process.env.CRYPTO_NEWS_BASE || "https://cryptocurrency.cv";
+
 // Type-safe internal API references
 const internalApi = internal as {
   queries: {
     getCache: any;
-    getNewsByQueryHash: any;
   };
   mutations: {
     setCache: any;
@@ -29,212 +30,90 @@ interface NewsArticle {
   relevanceScore: number | null;
 }
 
-// Major news sources with RSS feeds
-const NEWS_SOURCES = [
-  {
-    name: "Reuters",
-    rssFeeds: [
-      "https://www.reutersagency.com/feed/?taxonomy=best-topics&post_type=best",
-      "https://www.reuters.com/tools/rss",
-    ],
-    apiUrl: null,
-  },
-  {
-    name: "AP News",
-    rssFeeds: [
-      "https://apnews.com/apf-topnews",
-      "https://apnews.com/apf-usnews",
-    ],
-    apiUrl: null,
-  },
-  {
-    name: "BBC News",
-    rssFeeds: [
-      "http://feeds.bbci.co.uk/news/rss.xml",
-      "http://feeds.bbci.co.uk/news/world/rss.xml",
-    ],
-    apiUrl: null,
-  },
-  {
-    name: "The Guardian",
-    rssFeeds: [
-      "https://www.theguardian.com/world/rss",
-      "https://www.theguardian.com/us-news/rss",
-    ],
-    apiUrl: null,
-  },
-  {
-    name: "CNN",
-    rssFeeds: [
-      "http://rss.cnn.com/rss/edition.rss",
-      "http://rss.cnn.com/rss/edition_us.rss",
-    ],
-    apiUrl: null,
-  },
-  {
-    name: "NPR",
-    rssFeeds: [
-      "https://feeds.npr.org/1001/rss.xml",
-      "https://feeds.npr.org/1004/rss.xml",
-    ],
-    apiUrl: null,
-  },
-  {
-    name: "Politico",
-    rssFeeds: [
-      "https://www.politico.com/rss/politicopicks.xml",
-    ],
-    apiUrl: null,
-  },
-  {
-    name: "Axios",
-    rssFeeds: [
-      "https://api.axios.com/feed/",
-    ],
-    apiUrl: null,
-  },
-];
+interface CryptoNewsApiArticle {
+  title?: string;
+  link?: string;
+  source?: string;
+  timeAgo?: string;
+  pubDate?: string;
+  description?: string;
+  summary?: string;
+}
 
-/**
- * Parse RSS feed XML
- */
-async function parseRSSFeed(feedUrl: string): Promise<NewsArticle[]> {
+function stripCdata(s: string) {
+  return s.replace(/<!\[CDATA\[|\]\]>/g, "").trim();
+}
+
+function parsePublishedAt(article: CryptoNewsApiArticle): number {
+  if (article.pubDate) {
+    const t = Date.parse(article.pubDate);
+    if (!Number.isNaN(t)) return t;
+  }
+  return Date.now();
+}
+
+function normalizeArticle(a: CryptoNewsApiArticle): NewsArticle | null {
+  const title = (a.title || "").trim();
+  const rawLink = (a.link || "").trim();
+  if (!title || !rawLink) return null;
+
+  return {
+    title,
+    url: stripCdata(rawLink),
+    source: (a.source || "crypto-news").trim(),
+    publishedAt: parsePublishedAt(a),
+    snippet: (a.summary || a.description || null),
+    relevanceScore: null,
+  };
+}
+
+async function fetchCryptoNewsEndpoint(path: string): Promise<NewsArticle[]> {
   try {
-    const response = await fetch(feedUrl, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; PolymarketFactChecker/1.0)",
-      },
-      signal: AbortSignal.timeout(10000),
+    const url = `${CRYPTO_NEWS_BASE}${path}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": "PolymarketFactChecker/2.0" },
+      signal: AbortSignal.timeout(12000),
     });
+    if (!res.ok) return [];
 
-    if (!response.ok) {
-      console.warn(`[retrieveNews] Failed to fetch RSS feed ${feedUrl}: ${response.status}`);
-      return [];
-    }
-
-    const xmlText = await response.text();
-    const articles: NewsArticle[] = [];
-
-    // Simple RSS parsing (for production, consider using a proper RSS parser library)
-    // Extract items from RSS XML
-    const itemMatches = xmlText.matchAll(/<item[^>]*>([\s\S]*?)<\/item>/gi);
-    
-    for (const match of itemMatches) {
-      const itemContent = match[1];
-      
-      // Extract title
-      const titleMatch = itemContent.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-      const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, "").trim() : null;
-      
-      // Extract link
-      const linkMatch = itemContent.match(/<link[^>]*>([\s\S]*?)<\/link>/i);
-      const url = linkMatch ? linkMatch[1].replace(/<[^>]+>/g, "").trim() : null;
-      
-      // Extract description/snippet
-      const descMatch = itemContent.match(/<description[^>]*>([\s\S]*?)<\/description>/i);
-      const snippet = descMatch ? descMatch[1].replace(/<[^>]+>/g, "").trim().substring(0, 300) : null;
-      
-      // Extract pubDate
-      const pubDateMatch = itemContent.match(/<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i);
-      let publishedAt = Date.now();
-      if (pubDateMatch) {
-        const dateStr = pubDateMatch[1].replace(/<[^>]+>/g, "").trim();
-        const parsed = Date.parse(dateStr);
-        if (!isNaN(parsed)) {
-          publishedAt = parsed;
-        }
-      }
-
-      if (title && url) {
-        articles.push({
-          title,
-          url,
-          source: feedUrl,
-          publishedAt,
-          snippet,
-          relevanceScore: null,
-        });
-      }
-    }
-
-    return articles;
-  } catch (error) {
-    console.error(`[retrieveNews] Error parsing RSS feed ${feedUrl}:`, error);
+    const data = await res.json();
+    const rawArticles = (data?.articles || []) as CryptoNewsApiArticle[];
+    return rawArticles.map(normalizeArticle).filter((x): x is NewsArticle => x !== null);
+  } catch (err) {
+    console.error("[retrieveNews] crypto-news endpoint error:", path, err);
     return [];
   }
 }
 
-/**
- * Search news using NewsAPI (if API key is available)
- */
-async function searchNewsAPI(query: string, limit: number = 20): Promise<NewsArticle[]> {
-  const NEWS_API_KEY = process.env.NEWS_API_KEY;
-  if (!NEWS_API_KEY) {
-    console.log("[retrieveNews] NEWS_API_KEY not set, skipping NewsAPI");
-    return [];
+function dedupeByUrl(articles: NewsArticle[]): NewsArticle[] {
+  const seen = new Set<string>();
+  const out: NewsArticle[] = [];
+  for (const a of articles) {
+    if (seen.has(a.url)) continue;
+    seen.add(a.url);
+    out.push(a);
   }
-
-  try {
-    // Build search query from claim keywords
-    const searchQuery = query.split(" ").slice(0, 5).join(" ");
-    
-    const response = await fetch(
-      `https://newsapi.org/v2/everything?q=${encodeURIComponent(searchQuery)}&sortBy=relevancy&pageSize=${limit}&language=en`,
-      {
-        headers: {
-          "X-API-Key": NEWS_API_KEY,
-        },
-        signal: AbortSignal.timeout(10000),
-      }
-    );
-
-    if (!response.ok) {
-      console.warn(`[retrieveNews] NewsAPI error: ${response.status}`);
-      return [];
-    }
-
-    const data = await response.json();
-    if (!data.articles || !Array.isArray(data.articles)) {
-      return [];
-    }
-
-    return data.articles
-      .filter((article: any) => article.title && article.url)
-      .map((article: any) => ({
-        title: article.title,
-        url: article.url,
-        source: article.source?.name || "NewsAPI",
-        publishedAt: article.publishedAt ? Date.parse(article.publishedAt) : Date.now(),
-        snippet: article.description || article.content?.substring(0, 300) || null,
-        relevanceScore: null,
-      }));
-  } catch (error) {
-    console.error("[retrieveNews] NewsAPI error:", error);
-    return [];
-  }
+  return out;
 }
 
-/**
- * Score article relevance using embeddings
- */
 async function scoreRelevance(
   articles: NewsArticle[],
   queryEmbedding: number[],
-  embedAction: any
+  embedAction: (args: { text: string }) => Promise<number[]>
 ): Promise<NewsArticle[]> {
   const scoredArticles: NewsArticle[] = [];
 
   for (const article of articles) {
     try {
-      // Create text for embedding (title + snippet)
       const articleText = [article.title, article.snippet].filter(Boolean).join(" ");
-      
-      // Embed article text
       const articleEmbedding = await embedAction({ text: articleText });
-      
-      // Compute cosine similarity
+
       let similarity = 0;
-      if (articleEmbedding && Array.isArray(articleEmbedding) && articleEmbedding.length === queryEmbedding.length) {
+      if (
+        articleEmbedding &&
+        Array.isArray(articleEmbedding) &&
+        articleEmbedding.length === queryEmbedding.length
+      ) {
         let dotProduct = 0;
         let normA = 0;
         let normB = 0;
@@ -247,10 +126,7 @@ async function scoreRelevance(
         similarity = denominator > 0 ? dotProduct / denominator : 0;
       }
 
-      scoredArticles.push({
-        ...article,
-        relevanceScore: similarity,
-      });
+      scoredArticles.push({ ...article, relevanceScore: similarity });
     } catch (error) {
       console.error(`[retrieveNews] Error scoring article ${article.title}:`, error);
       scoredArticles.push(article);
@@ -261,7 +137,8 @@ async function scoreRelevance(
 }
 
 /**
- * Retrieve news articles relevant to a parsed claim
+ * Retrieve crypto-first news relevant to a parsed claim.
+ * Primary source: cryptocurrency.cv skill-compatible endpoints.
  */
 export const retrieveNews = action({
   args: {
@@ -272,7 +149,6 @@ export const retrieveNews = action({
     const parsedClaim = args.parsedClaim as ParsedClaim;
     const limit = args.limit || 15;
 
-    // Build query text from parsed claim
     const queryText = [
       parsedClaim.claim,
       ...parsedClaim.must_include,
@@ -281,74 +157,63 @@ export const retrieveNews = action({
       .filter(Boolean)
       .join(" ");
 
-    // Check cache first
     const queryHash = hashString(queryText);
     const cached = await ctx.runQuery(internalApi.queries.getCache, {
       key: `news:${queryHash}`,
     });
 
     if (cached && cached.expiresAt > Date.now()) {
-      console.log(`[retrieveNews] Returning cached news for query hash ${queryHash}`);
+      console.log(`[retrieveNews] Returning cached crypto news for query hash ${queryHash}`);
       return cached.value as NewsArticle[];
     }
 
-    // Embed query for relevance scoring
-    const queryEmbedding: number[] = await ctx.runAction(internalApi.actions.aiEmbed.embedText, {
-      text: queryText,
-    });
-
-    const allArticles: NewsArticle[] = [];
-
-    // Fetch from RSS feeds (limited to avoid rate limits)
-    const rssSources = NEWS_SOURCES.slice(0, 5); // Limit to 5 sources for performance
-    for (const source of rssSources) {
-      for (const feedUrl of source.rssFeeds.slice(0, 1)) {
-        // Only fetch first feed per source
-        try {
-          const articles = await parseRSSFeed(feedUrl);
-          articles.forEach((article) => {
-            allArticles.push({
-              ...article,
-              source: source.name,
-            });
-          });
-        } catch (error) {
-          console.error(`[retrieveNews] Error fetching from ${source.name}:`, error);
-        }
-      }
-    }
-
-    // Fetch from NewsAPI
-    const newsApiArticles = await searchNewsAPI(queryText, 10);
-    allArticles.push(...newsApiArticles);
-
-    // Score relevance
-    const scoredArticles = await scoreRelevance(
-      allArticles,
-      queryEmbedding,
-      (args: { text: string }) => ctx.runAction(internalApi.actions.aiEmbed.embedText, args)
+    const queryEmbedding: number[] = await ctx.runAction(
+      internalApi.actions.aiEmbed.embedText,
+      { text: queryText }
     );
 
-    // Sort by relevance and recency
-    scoredArticles.sort((a, b) => {
-      const scoreA = (a.relevanceScore || 0) * 0.7 + (Date.now() - a.publishedAt < 7 * 24 * 60 * 60 * 1000 ? 0.3 : 0);
-      const scoreB = (b.relevanceScore || 0) * 0.7 + (Date.now() - b.publishedAt < 7 * 24 * 60 * 60 * 1000 ? 0.3 : 0);
+    // Crypto-first endpoints
+    const endpointCalls: Promise<NewsArticle[]>[] = [
+      fetchCryptoNewsEndpoint(`/api/news?limit=${Math.max(limit, 20)}`),
+      fetchCryptoNewsEndpoint(`/api/breaking?limit=${Math.max(limit, 20)}`),
+      fetchCryptoNewsEndpoint(`/api/search?q=${encodeURIComponent(queryText)}&limit=${Math.max(limit, 20)}`),
+    ];
+
+    const lower = queryText.toLowerCase();
+    if (lower.includes("bitcoin") || lower.includes("btc")) {
+      endpointCalls.push(fetchCryptoNewsEndpoint(`/api/bitcoin?limit=${Math.max(limit, 20)}`));
+    }
+    if (lower.includes("defi") || lower.includes("dex") || lower.includes("yield")) {
+      endpointCalls.push(fetchCryptoNewsEndpoint(`/api/defi?limit=${Math.max(limit, 20)}`));
+    }
+
+    const batches = await Promise.all(endpointCalls);
+    const merged = dedupeByUrl(batches.flat());
+
+    const scored = await scoreRelevance(
+      merged,
+      queryEmbedding,
+      (embedArgs) => ctx.runAction(internalApi.actions.aiEmbed.embedText, embedArgs)
+    );
+
+    scored.sort((a, b) => {
+      const recencyBoostA = Date.now() - a.publishedAt < 24 * 60 * 60 * 1000 ? 0.2 : 0;
+      const recencyBoostB = Date.now() - b.publishedAt < 24 * 60 * 60 * 1000 ? 0.2 : 0;
+      const scoreA = (a.relevanceScore || 0) + recencyBoostA;
+      const scoreB = (b.relevanceScore || 0) + recencyBoostB;
       return scoreB - scoreA;
     });
 
-    // Take top N articles
-    const topArticles = scoredArticles.slice(0, limit);
+    const topArticles = scored.slice(0, limit);
 
-    // Store in cache (1 hour TTL)
     const now = Date.now();
     await ctx.runMutation(internalApi.mutations.setCache, {
       key: `news:${queryHash}`,
       value: topArticles,
-      expiresAt: now + 60 * 60 * 1000,
+      expiresAt: now + 30 * 60 * 1000, // 30m TTL for fresher crypto news
       updatedAt: now,
     });
 
-    // Store articles in database for future reference
     for (const article of topArticles) {
       await ctx.runMutation(internalApi.mutations.upsertNewsArticle, {
         title: article.title,
@@ -361,8 +226,7 @@ export const retrieveNews = action({
       });
     }
 
-    console.log(`[retrieveNews] Retrieved ${topArticles.length} news articles for query`);
+    console.log(`[retrieveNews] Retrieved ${topArticles.length} crypto-first news articles`);
     return topArticles;
   },
 });
-
