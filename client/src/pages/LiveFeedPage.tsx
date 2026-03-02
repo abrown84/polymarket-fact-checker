@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import { useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { motion } from "framer-motion";
@@ -168,39 +168,42 @@ export default function LiveFeedPage() {
   const [refreshing, setRefreshing] = useState(false);
   const getLiveFeed = useAction(api.actions.getLiveFeed.getLiveFeed);
 
-  const loadFeed = async (isRefresh = false) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
+  const loadFeed = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
+      }
 
-    try {
-      const result = await getLiveFeed({
-        category,
-        limit: 50,
-      });
-      setFeedItems(result.items);
-    } catch (error) {
-      console.error("Error loading feed:", error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+      try {
+        const result = await getLiveFeed({
+          category,
+          limit: 50,
+        });
+        setFeedItems(result.items);
+      } catch (error) {
+        console.error("Error loading feed:", error);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [category, getLiveFeed],
+  );
 
   useEffect(() => {
-    loadFeed();
-  }, [category]);
+    void loadFeed();
+  }, [loadFeed]);
 
   // Auto-refresh every 5 minutes
   useEffect(() => {
     const interval = setInterval(() => {
-      loadFeed(true);
+      void loadFeed(true);
     }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [category]);
+  }, [loadFeed]);
 
   return (
     <div className="min-h-screen bg-[#0f1419] text-white">
