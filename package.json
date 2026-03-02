@@ -12,7 +12,8 @@
     "build": "cd client && npm run build",
     "deploy": "npm run deploy:convex && npm run deploy:vercel",
     "deploy:convex": "convex deploy",
-    "deploy:vercel": "cd client && vercel deploy"
+    "deploy:vercel": "cd client && vercel deploy",
+    "dev:mobile-ngrok": "./scripts/start-mobile-ngrok.sh"
   },
   "dependencies": {
     "@polymarket/clob-client": "^5.1.1",
