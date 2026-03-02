@@ -489,7 +489,7 @@ export const factCheck = action({
 
     // Always generate an answer, but adjust the approach based on match quality
     const hasGoodMatch = matchScore >= 0.35 && confidence >= 0.25;
-    const chat = getChatConfig();
+    const chat = await getChatConfig(ctx);
     
     if (!hasGoodMatch) {
       // Even with poor matches, provide an answer using available data

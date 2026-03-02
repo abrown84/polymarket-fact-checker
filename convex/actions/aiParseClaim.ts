@@ -20,7 +20,7 @@ export const aiParseClaim = action({
     }
 
     try {
-      const chat = getChatConfig();
+      const chat = await getChatConfig(ctx);
       const response = await fetch(chat.apiUrl, {
         method: "POST",
         headers: {

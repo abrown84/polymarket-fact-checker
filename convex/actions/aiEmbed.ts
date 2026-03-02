@@ -65,7 +65,7 @@ async function setCache(
 export const embedText = action({
   args: { text: v.string() },
   handler: async (ctx, args) => {
-    const embed = getEmbedConfig();
+    const embed = await getEmbedConfig(ctx);
     const cacheKey = `embed:${hashString(args.text + embed.model)}`;
     const cached = await getCache(ctx, cacheKey);
     if (cached) {

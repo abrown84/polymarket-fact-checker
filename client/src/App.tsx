@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Search, BarChart3, Info, History, Newspaper } from "lucide-react";
 import RecentQueries from "./components/RecentQueries";
 import NewsFeed from "./components/NewsFeed";
+import AuthControls from "./components/AuthControls";
 import { UI_CONSTANTS } from "./constants";
 
 type View = "search" | "dashboard" | "queries" | "news";
@@ -105,11 +106,13 @@ function AppContent() {
               </div>
             </div>
 
-            {/* Enhanced Navigation Tabs */}
-            <div 
-              ref={containerRef}
-              className="relative flex bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1.5 shadow-lg overflow-x-auto no-scrollbar scroll-smooth"
-            >
+            <div className="flex flex-col items-start md:items-end gap-2">
+              <AuthControls />
+              {/* Enhanced Navigation Tabs */}
+              <div 
+                ref={containerRef}
+                className="relative flex bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1.5 shadow-lg overflow-x-auto no-scrollbar scroll-smooth"
+              >
               <motion.div
                 className="absolute inset-y-1.5 bg-gradient-to-r from-emerald-500/20 to-blue-500/20 border border-emerald-500/30 rounded-lg"
                 initial={false}
@@ -141,6 +144,7 @@ function AppContent() {
                   <span className="hidden sm:inline">{tab.label}</span>
                 </button>
               ))}
+              </div>
             </div>
           </div>
         </div>

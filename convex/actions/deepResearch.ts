@@ -241,7 +241,7 @@ export const deepResearch = action({
     analysisDepth: v.optional(v.union(v.literal("standard"), v.literal("deep"))),
   },
   handler: async (ctx, args): Promise<DeepResearchResult> => {
-    const chat = getChatConfig();
+    const chat = await getChatConfig(ctx);
 
     const analysisDepth = args.analysisDepth || "standard";
 

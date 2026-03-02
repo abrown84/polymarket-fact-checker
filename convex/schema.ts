@@ -33,6 +33,41 @@ export default defineSchema({
     .index("by_key", ["key"])
     .index("by_expires_at", ["expiresAt"]),
 
+  authProfiles: defineTable({
+    provider: v.string(),
+    accountId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.union(v.string(), v.null()),
+    expiresAt: v.union(v.number(), v.null()),
+    tokenType: v.union(v.string(), v.null()),
+    scope: v.union(v.string(), v.null()),
+    updatedAt: v.number(),
+  })
+    .index("by_provider_account", ["provider", "accountId"])
+    .index("by_provider", ["provider"]),
+
+  authPkceStates: defineTable({
+    provider: v.string(),
+    state: v.string(),
+    codeVerifier: v.string(),
+    redirectUri: v.string(),
+    accountId: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.union(v.number(), v.null()),
+  })
+    .index("by_state", ["state"])
+    .index("by_provider_state", ["provider", "state"]),
+
+  authRefreshLocks: defineTable({
+    provider: v.string(),
+    accountId: v.string(),
+    owner: v.string(),
+    lockedUntil: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_provider_account", ["provider", "accountId"]),
+
   queriesLog: defineTable({
     question: v.string(),
     parsedClaim: v.any(),
