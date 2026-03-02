@@ -264,7 +264,7 @@ async function testOpenRouter(): Promise<{ success: boolean; error?: string; det
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-4o-mini",
+        model: process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-5.1-codex-mini",
         messages: [{ role: "user", content: "test" }],
         max_tokens: 5,
       }),

@@ -7,7 +7,7 @@ import { ParsedClaimSchema } from "../utils";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_CHAT_MODEL =
-  process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-4o-mini";
+  process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-5.1-codex-mini";
 
 if (!OPENROUTER_API_KEY) {
   throw new Error("OPENROUTER_API_KEY environment variable is required");

@@ -9,7 +9,7 @@ import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_CHAT_MODEL = process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-4o-mini";
+const OPENROUTER_CHAT_MODEL = process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-5.1-codex-mini";
 const OPENROUTER_EMBED_MODEL = process.env.OPENROUTER_EMBED_MODEL || "openai/text-embedding-3-small";
 const POLYMARKET_GAMMA_BASE = process.env.POLYMARKET_GAMMA_BASE || "https://gamma-api.polymarket.com";
 const POLYMARKET_CLOB_BASE = process.env.POLYMARKET_CLOB_BASE || "https://clob.polymarket.com";
