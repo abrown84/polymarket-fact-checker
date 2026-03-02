@@ -14,10 +14,8 @@ if [ -z "$LOCAL_IP" ]; then
   LOCAL_IP="127.0.0.1"
 fi
 
-export VITE_CONVEX_URL="http://${LOCAL_IP}:3210"
-
 echo "Starting Vite on port $PORT and public IP $LOCAL_IP"
-echo "Convex URL: $VITE_CONVEX_URL"
+echo "Convex backend expected on: http://127.0.0.1:3210 (proxied by Vite)"
 
 VITE_LOG="$ROOT_DIR/.mobile-vite.log"
 NGROK_LOG="$ROOT_DIR/.mobile-ngrok.log"

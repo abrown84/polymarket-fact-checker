@@ -5,13 +5,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { clamp01, ParsedClaim, parseDateFromQuery } from "../utils";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_CHAT_MODEL =
-  process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini";
-
-if (!OPENAI_API_KEY) {
-  throw new Error("OPENAI_API_KEY environment variable is required");
-}
+import { getChatConfig } from "./providerAuth";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -495,6 +489,7 @@ export const factCheck = action({
 
     // Always generate an answer, but adjust the approach based on match quality
     const hasGoodMatch = matchScore >= 0.35 && confidence >= 0.25;
+    const chat = getChatConfig();
     
     if (!hasGoodMatch) {
       // Even with poor matches, provide an answer using available data
@@ -509,15 +504,15 @@ export const factCheck = action({
           }));
 
         const summaryResponse = await fetch(
-          "https://api.openai.com/v1/chat/completions",
+          chat.apiUrl,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
+              Authorization: `Bearer ${chat.apiKey}`,
             },
             body: JSON.stringify({
-              model: OPENAI_CHAT_MODEL,
+              model: chat.model,
               messages: [
                 {
                   role: "system",
@@ -631,15 +626,15 @@ Provide a helpful answer to the question using this market data, news context, s
           }));
 
         const summaryResponse = await fetch(
-          "https://api.openai.com/v1/chat/completions",
+          chat.apiUrl,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${OPENAI_API_KEY}`,
+              Authorization: `Bearer ${chat.apiKey}`,
             },
             body: JSON.stringify({
-              model: OPENAI_CHAT_MODEL,
+              model: chat.model,
               messages: [
                 {
                   role: "system",

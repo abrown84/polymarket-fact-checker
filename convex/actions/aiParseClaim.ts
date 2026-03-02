@@ -5,13 +5,7 @@ import { v } from "convex/values";
 import { z } from "zod";
 import { ParsedClaimSchema } from "../utils";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_CHAT_MODEL =
-  process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini";
-
-if (!OPENAI_API_KEY) {
-  throw new Error("OPENAI_API_KEY environment variable is required");
-}
+import { getChatConfig } from "./providerAuth";
 
 /**
  * Parse a question into a structured claim using OpenRouter
@@ -26,14 +20,15 @@ export const aiParseClaim = action({
     }
 
     try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const chat = getChatConfig();
+      const response = await fetch(chat.apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          Authorization: `Bearer ${chat.apiKey}`,
         },
         body: JSON.stringify({
-          model: OPENAI_CHAT_MODEL,
+          model: chat.model,
           messages: [
             {
               role: "system",

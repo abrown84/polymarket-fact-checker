@@ -5,13 +5,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { hashString } from "../utils";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_EMBED_MODEL =
-  process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
-
-if (!OPENAI_API_KEY) {
-  throw new Error("OPENAI_API_KEY environment variable is required");
-}
+import { getEmbedConfig } from "./providerAuth";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -71,20 +65,21 @@ async function setCache(
 export const embedText = action({
   args: { text: v.string() },
   handler: async (ctx, args) => {
-    const cacheKey = `embed:${hashString(args.text + OPENAI_EMBED_MODEL)}`;
+    const embed = getEmbedConfig();
+    const cacheKey = `embed:${hashString(args.text + embed.model)}`;
     const cached = await getCache(ctx, cacheKey);
     if (cached) {
       return cached;
     }
 
-    const response = await fetch("https://api.openai.com/v1/embeddings", {
+    const response = await fetch(embed.apiUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        Authorization: `Bearer ${embed.apiKey}`,
       },
       body: JSON.stringify({
-        model: OPENAI_EMBED_MODEL,
+        model: embed.model,
         input: args.text,
       }),
       signal: AbortSignal.timeout(30000), // 30s timeout

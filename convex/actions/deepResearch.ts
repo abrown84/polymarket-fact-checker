@@ -4,10 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { ParsedClaim } from "../utils";
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_CHAT_MODEL =
-  process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini";
+import { getChatConfig } from "./providerAuth";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -244,10 +241,7 @@ export const deepResearch = action({
     analysisDepth: v.optional(v.union(v.literal("standard"), v.literal("deep"))),
   },
   handler: async (ctx, args): Promise<DeepResearchResult> => {
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      throw new Error("OPENAI_API_KEY environment variable is required");
-    }
+    const chat = getChatConfig();
 
     const analysisDepth = args.analysisDepth || "standard";
 
@@ -295,15 +289,15 @@ export const deepResearch = action({
     let insights: string[] = [];
     try {
       const insightsResponse = await fetch(
-        "https://api.openai.com/v1/chat/completions",
+        chat.apiUrl,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
+            Authorization: `Bearer ${chat.apiKey}`,
           },
           body: JSON.stringify({
-            model: OPENAI_CHAT_MODEL,
+            model: chat.model,
             messages: [
               {
                 role: "system",
