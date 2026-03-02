@@ -8,6 +8,7 @@
     "dev:client": "cd client && npm run dev",
     "dev:convex": "convex dev --typecheck=disable",
     "dev:mobile-tunnel": "./scripts/start-mobile-tunnel.sh",
+    "dev:mobile-cloudflare": "./scripts/start-mobile-cloudflare.sh",
     "build": "cd client && npm run build",
     "deploy": "npm run deploy:convex && npm run deploy:vercel",
     "deploy:convex": "convex deploy",
