@@ -5,12 +5,12 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { hashString } from "../utils";
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_EMBED_MODEL =
-  process.env.OPENROUTER_EMBED_MODEL || "openai/text-embedding-3-small";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_EMBED_MODEL =
+  process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
 
-if (!OPENROUTER_API_KEY) {
-  throw new Error("OPENROUTER_API_KEY environment variable is required");
+if (!OPENAI_API_KEY) {
+  throw new Error("OPENAI_API_KEY environment variable is required");
 }
 
 // Type-safe internal API references
@@ -65,26 +65,26 @@ async function setCache(
 }
 
 /**
- * Embed text using OpenRouter embeddings API
+ * Embed text using OpenAI embeddings API
  * Caches embeddings by hash(text + model) to reduce cost
  */
 export const embedText = action({
   args: { text: v.string() },
   handler: async (ctx, args) => {
-    const cacheKey = `embed:${hashString(args.text + OPENROUTER_EMBED_MODEL)}`;
+    const cacheKey = `embed:${hashString(args.text + OPENAI_EMBED_MODEL)}`;
     const cached = await getCache(ctx, cacheKey);
     if (cached) {
       return cached;
     }
 
-    const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
+    const response = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: OPENROUTER_EMBED_MODEL,
+        model: OPENAI_EMBED_MODEL,
         input: args.text,
       }),
       signal: AbortSignal.timeout(30000), // 30s timeout
@@ -92,7 +92,7 @@ export const embedText = action({
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`OpenRouter API error: ${response.status} ${error}`);
+      throw new Error(`OpenAI API error: ${response.status} ${error}`);
     }
 
     const data = await response.json();

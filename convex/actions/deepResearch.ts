@@ -5,9 +5,9 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { ParsedClaim } from "../utils";
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_CHAT_MODEL =
-  process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-5.1-codex-mini";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_CHAT_MODEL =
+  process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -244,9 +244,9 @@ export const deepResearch = action({
     analysisDepth: v.optional(v.union(v.literal("standard"), v.literal("deep"))),
   },
   handler: async (ctx, args): Promise<DeepResearchResult> => {
-    const apiKey = process.env.OPENROUTER_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      throw new Error("OPENROUTER_API_KEY environment variable is required");
+      throw new Error("OPENAI_API_KEY environment variable is required");
     }
 
     const analysisDepth = args.analysisDepth || "standard";
@@ -295,7 +295,7 @@ export const deepResearch = action({
     let insights: string[] = [];
     try {
       const insightsResponse = await fetch(
-        "https://openrouter.ai/api/v1/chat/completions",
+        "https://api.openai.com/v1/chat/completions",
         {
           method: "POST",
           headers: {
@@ -303,7 +303,7 @@ export const deepResearch = action({
             Authorization: `Bearer ${apiKey}`,
           },
           body: JSON.stringify({
-            model: OPENROUTER_CHAT_MODEL,
+            model: OPENAI_CHAT_MODEL,
             messages: [
               {
                 role: "system",

@@ -251,20 +251,20 @@ async function testKalshi(): Promise<{ success: boolean; error?: string; details
  * Test OpenRouter API
  */
 async function testOpenRouter(): Promise<{ success: boolean; error?: string; details?: any }> {
-  const key = process.env.OPENROUTER_API_KEY;
+  const key = process.env.OPENAI_API_KEY;
   if (!key) {
-    return { success: false, error: "OPENROUTER_API_KEY not set" };
+    return { success: false, error: "OPENAI_API_KEY not set" };
   }
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify({
-        model: process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-5.1-codex-mini",
+        model: process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini",
         messages: [{ role: "user", content: "test" }],
         max_tokens: 5,
       }),
@@ -370,9 +370,9 @@ export const checkCredentials = action({
       {
         name: "OpenRouter API",
         required: true,
-        configured: isEnvSet("OPENROUTER_API_KEY"),
-        keys: ["OPENROUTER_API_KEY"],
-        status: isEnvSet("OPENROUTER_API_KEY") ? "✅ Set" : "❌ Missing",
+        configured: isEnvSet("OPENAI_API_KEY"),
+        keys: ["OPENAI_API_KEY"],
+        status: isEnvSet("OPENAI_API_KEY") ? "✅ Set" : "❌ Missing",
       },
       {
         name: "Twitter/X",

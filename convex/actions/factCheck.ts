@@ -5,12 +5,12 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { clamp01, ParsedClaim, parseDateFromQuery } from "../utils";
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_CHAT_MODEL =
-  process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-5.1-codex-mini";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_CHAT_MODEL =
+  process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini";
 
-if (!OPENROUTER_API_KEY) {
-  throw new Error("OPENROUTER_API_KEY environment variable is required");
+if (!OPENAI_API_KEY) {
+  throw new Error("OPENAI_API_KEY environment variable is required");
 }
 
 // Type-safe internal API references
@@ -509,15 +509,15 @@ export const factCheck = action({
           }));
 
         const summaryResponse = await fetch(
-          "https://openrouter.ai/api/v1/chat/completions",
+          "https://api.openai.com/v1/chat/completions",
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
             },
             body: JSON.stringify({
-              model: OPENROUTER_CHAT_MODEL,
+              model: OPENAI_CHAT_MODEL,
               messages: [
                 {
                   role: "system",
@@ -631,15 +631,15 @@ Provide a helpful answer to the question using this market data, news context, s
           }));
 
         const summaryResponse = await fetch(
-          "https://openrouter.ai/api/v1/chat/completions",
+          "https://api.openai.com/v1/chat/completions",
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+              Authorization: `Bearer ${OPENAI_API_KEY}`,
             },
             body: JSON.stringify({
-              model: OPENROUTER_CHAT_MODEL,
+              model: OPENAI_CHAT_MODEL,
               messages: [
                 {
                   role: "system",

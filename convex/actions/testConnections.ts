@@ -8,9 +8,9 @@
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_CHAT_MODEL = process.env.OPENROUTER_CHAT_MODEL || "openai/gpt-5.1-codex-mini";
-const OPENROUTER_EMBED_MODEL = process.env.OPENROUTER_EMBED_MODEL || "openai/text-embedding-3-small";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const OPENAI_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini";
+const OPENAI_EMBED_MODEL = process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
 const POLYMARKET_GAMMA_BASE = process.env.POLYMARKET_GAMMA_BASE || "https://gamma-api.polymarket.com";
 const POLYMARKET_CLOB_BASE = process.env.POLYMARKET_CLOB_BASE || "https://clob.polymarket.com";
 const TWITTER_BEARER_TOKEN = process.env.TWITTER_BEARER_TOKEN;
@@ -166,24 +166,24 @@ async function testClobAPI(): Promise<TestResult> {
  */
 async function testOpenRouterEmbeddings(): Promise<TestResult> {
   const startTime = Date.now();
-  if (!OPENROUTER_API_KEY) {
+  if (!OPENAI_API_KEY) {
     return {
       name: "OpenRouter Embeddings API",
       success: false,
-      error: "OPENROUTER_API_KEY environment variable not set",
+      error: "OPENAI_API_KEY environment variable not set",
       duration: Date.now() - startTime,
     };
   }
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/embeddings", {
+    const response = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: OPENROUTER_EMBED_MODEL,
+        model: OPENAI_EMBED_MODEL,
         input: "test connection",
       }),
       signal: AbortSignal.timeout(30000),
@@ -205,7 +205,7 @@ async function testOpenRouterEmbeddings(): Promise<TestResult> {
       name: "OpenRouter Embeddings API",
       success: true,
       details: {
-        model: OPENROUTER_EMBED_MODEL,
+        model: OPENAI_EMBED_MODEL,
         embeddingLength: Array.isArray(embedding) ? embedding.length : 0,
         hasEmbedding: !!embedding,
       },
@@ -226,26 +226,26 @@ async function testOpenRouterEmbeddings(): Promise<TestResult> {
  */
 async function testOpenRouterChat(): Promise<TestResult> {
   const startTime = Date.now();
-  if (!OPENROUTER_API_KEY) {
+  if (!OPENAI_API_KEY) {
     return {
       name: "OpenRouter Chat API",
       success: false,
-      error: "OPENROUTER_API_KEY environment variable not set",
+      error: "OPENAI_API_KEY environment variable not set",
       duration: Date.now() - startTime,
     };
   }
 
   try {
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
         "HTTP-Referer": "https://polymarket-fact-checker.vercel.app",
         "X-Title": "Polymarket Fact Checker",
       },
       body: JSON.stringify({
-        model: OPENROUTER_CHAT_MODEL,
+        model: OPENAI_CHAT_MODEL,
         messages: [
           { role: "user", content: "Say 'test successful' and nothing else." },
         ],
@@ -271,7 +271,7 @@ async function testOpenRouterChat(): Promise<TestResult> {
       name: "OpenRouter Chat API",
       success: true,
       details: {
-        model: OPENROUTER_CHAT_MODEL,
+        model: OPENAI_CHAT_MODEL,
         response: content,
         hasResponse: !!content,
       },

@@ -319,7 +319,7 @@ export const ingestMarkets = action({
             await ctx.runMutation(internalApi.mutations.upsertEmbedding, {
               polymarketMarketId,
               vector: embedding,
-              model: process.env.OPENROUTER_EMBED_MODEL || "openai/text-embedding-3-small",
+              model: process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small",
               updatedAt: now,
             });
             embeddingCount++;
