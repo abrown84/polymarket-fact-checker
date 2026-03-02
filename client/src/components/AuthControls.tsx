@@ -9,7 +9,7 @@ export default function AuthControls() {
   const convexUrl = import.meta.env.VITE_CONVEX_URL || window.location.origin;
 
   const onConnect = () => {
-    const url = `${convexUrl}/auth/openai/start`;
+    const url = `${convexUrl}/http/auth/openai/start`;
     window.open(url, "openai-oauth", "popup,width=540,height=700");
   };
 

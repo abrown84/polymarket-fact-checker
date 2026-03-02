@@ -23,6 +23,14 @@ async function createPkcePair() {
   return { codeVerifier, codeChallenge };
 }
 
+function externalBaseUrl(request: Request): string {
+  const h = request.headers;
+  const proto = h.get("x-forwarded-proto") || h.get("x-forwarded-protocol") || "https";
+  const host = h.get("x-forwarded-host") || h.get("host");
+  if (host) return `${proto}://${host}`;
+  return new URL(request.url).origin;
+}
+
 // Health check endpoint
 http.route({
   path: "/health",
@@ -173,7 +181,7 @@ http.route({
   path: "/auth/openai/start",
   method: "GET",
   handler: httpAction(async (ctx, request) => {
-    const baseUrl = process.env.CONVEX_SITE_URL || new URL(request.url).origin;
+    const baseUrl = process.env.OPENAI_OAUTH_BASE_URL || process.env.CONVEX_SITE_URL || externalBaseUrl(request);
     const provider = "openai";
     const accountId = "default";
     const clientId = process.env.OPENAI_OAUTH_CLIENT_ID;
