@@ -7,7 +7,7 @@ import { ActionCtx, action } from "../_generated/server";
 import { v } from "convex/values";
 import { api } from "../_generated/api";
 
-type Provider = "openai" | "openrouter";
+type Provider = "openai" | "openrouter" | "openclaw-bridge";
 
 type PiAuthEntry = { type?: string; key?: string; accessToken?: string };
 type PiAuth = Record<string, PiAuthEntry>;
@@ -34,6 +34,7 @@ function keyFromPiAuth(provider: Provider): string | null {
 function resolveProvider(): Provider {
   const explicit = (process.env.LLM_PROVIDER || "").toLowerCase();
   if (explicit === "openai" || explicit === "openrouter") return explicit;
+  if (explicit === "openclaw-bridge" || explicit === "openclaw") return "openclaw-bridge";
 
   const hasOpenRouter = !!(process.env.OPENROUTER_API_KEY || keyFromPiAuth("openrouter"));
   if (hasOpenRouter) return "openrouter";
@@ -162,6 +163,17 @@ export async function refreshOAuthToken(
 
 export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
   const provider = resolveProvider();
+
+  if (provider === "openclaw-bridge") {
+    const apiKey = process.env.OPENCLAW_GATEWAY_TOKEN;
+    if (!apiKey) throw new Error("Missing OPENCLAW_GATEWAY_TOKEN env var");
+    return {
+      provider,
+      apiUrl: (process.env.OPENCLAW_BASE_URL || "http://127.0.0.1:18789") + "/v1/chat/completions",
+      apiKey,
+      model: process.env.OPENCLAW_CHAT_MODEL || "openclaw",
+    };
+  }
 
   if (provider === "openrouter") {
     const apiKey = await resolveAccessToken(ctx, "openrouter");
