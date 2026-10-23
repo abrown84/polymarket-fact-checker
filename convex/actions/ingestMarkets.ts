@@ -295,11 +295,32 @@ export const ingestMarkets = action({
             polymarketMarketId,
           });
 
+          const embedModel =
+            process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2";
+          const expectedDims = process.env.GEMINI_EMBED_DIMENSIONS
+            ? Number.parseInt(process.env.GEMINI_EMBED_DIMENSIONS, 10)
+            : undefined;
+          const embeddingModelMismatch =
+            !!existingEmbedding && existingEmbedding.model !== embedModel;
+          const embeddingDimMismatch =
+            !!existingEmbedding &&
+            Array.isArray(existingEmbedding.vector) &&
+            ((expectedDims
+              ? existingEmbedding.vector.length !== expectedDims
+              : false) ||
+              // Legacy OpenAI text-embedding-3-small vectors are 1536-d;
+              // Gemini embedding-2 defaults to 3072-d.
+              (existingEmbedding.vector.length > 0 &&
+                existingEmbedding.model &&
+                !String(existingEmbedding.model).startsWith("gemini-embedding")));
+
           const needsEmbedding =
             !existingEmbedding || // No embedding exists
             !existingMarket || // Market is new
             existingMarket.title !== title || // Title changed
-            existingMarket.description !== description; // Description changed
+            existingMarket.description !== description || // Description changed
+            embeddingModelMismatch ||
+            embeddingDimMismatch;
 
         // Generate embeddings (with timeout to avoid blocking)
         if (needsEmbedding) {
@@ -308,7 +329,7 @@ export const ingestMarkets = action({
             const embedding: number[] = await Promise.race([
               ctx.runAction(
                 internalApi.actions.aiEmbed.embedText,
-                { text: embeddingText }
+                { text: embeddingText, role: "document", title }
               ),
               new Promise<never>((_, reject) => 
                 setTimeout(() => reject(new Error("Embedding generation timeout after 20s")), 20000)
@@ -319,7 +340,7 @@ export const ingestMarkets = action({
             await ctx.runMutation(internalApi.mutations.upsertEmbedding, {
               polymarketMarketId,
               vector: embedding,
-              model: process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small",
+              model: embedModel,
               updatedAt: now,
             });
             embeddingCount++;

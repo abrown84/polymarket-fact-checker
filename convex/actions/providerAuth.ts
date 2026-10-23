@@ -7,7 +7,7 @@ import { ActionCtx, action } from "../_generated/server";
 import { v } from "convex/values";
 import { api } from "../_generated/api";
 
-type Provider = "openai" | "openrouter" | "openclaw-bridge";
+type Provider = "gemini" | "openai" | "openrouter" | "openclaw-bridge";
 
 type PiAuthEntry = { type?: string; key?: string; accessToken?: string };
 type PiAuth = Record<string, PiAuthEntry>;
@@ -33,12 +33,16 @@ function keyFromPiAuth(provider: Provider): string | null {
 
 function resolveProvider(): Provider {
   const explicit = (process.env.LLM_PROVIDER || "").toLowerCase();
+  if (explicit === "gemini" || explicit === "google") return "gemini";
   if (explicit === "openai" || explicit === "openrouter") return explicit;
   if (explicit === "openclaw-bridge" || explicit === "openclaw") return "openclaw-bridge";
 
+  // Default: Google Gemini (GEMINI_API_KEY)
+  if (process.env.GEMINI_API_KEY) return "gemini";
+
   const hasOpenRouter = !!(process.env.OPENROUTER_API_KEY || keyFromPiAuth("openrouter"));
   if (hasOpenRouter) return "openrouter";
-  return "openai";
+  return "gemini";
 }
 
 function randomId(prefix: string) {
@@ -161,8 +165,23 @@ export async function refreshOAuthToken(
   }
 }
 
+/**
+ * Chat/embed config. Primary path is Gemini via @google/genai (see gemini.ts).
+ * Legacy OpenAI-compatible URLs remain only for explicit LLM_PROVIDER overrides.
+ */
 export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
   const provider = resolveProvider();
+
+  if (provider === "gemini") {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Missing GEMINI_API_KEY env var");
+    return {
+      provider,
+      apiUrl: "https://generativelanguage.googleapis.com/v1beta",
+      apiKey,
+      model: process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash",
+    };
+  }
 
   if (provider === "openclaw-bridge") {
     const apiKey = process.env.OPENCLAW_GATEWAY_TOKEN;
@@ -198,6 +217,17 @@ export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provide
 
 export async function getEmbedConfig(ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
   const provider = resolveProvider();
+
+  if (provider === "gemini") {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("Missing GEMINI_API_KEY env var");
+    return {
+      provider,
+      apiUrl: "https://generativelanguage.googleapis.com/v1beta",
+      apiKey,
+      model: process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2",
+    };
+  }
 
   if (provider === "openrouter") {
     const apiKey = await resolveAccessToken(ctx, "openrouter");

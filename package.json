@@ -9,13 +9,14 @@
     "dev:convex": "convex dev --typecheck=disable",
     "dev:mobile-tunnel": "./scripts/start-mobile-tunnel.sh",
     "dev:mobile-cloudflare": "./scripts/start-mobile-cloudflare.sh",
-    "build": "cd client && npm run build",
+    "build": "npm install --prefix client && npm run build --prefix client",
     "deploy": "npm run deploy:convex && npm run deploy:vercel",
     "deploy:convex": "convex deploy",
     "deploy:vercel": "cd client && vercel deploy",
     "dev:mobile-ngrok": "./scripts/start-mobile-ngrok.sh"
   },
   "dependencies": {
+    "@google/genai": "^2.31.0",
     "@polymarket/clob-client": "^5.1.1",
     "zod": "^3.22.4"
   },

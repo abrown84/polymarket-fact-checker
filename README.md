@@ -4,9 +4,9 @@ An AI-first MVP that converts questions into checkable claims and retrieves evid
 
 ## Features
 
-- **Question Parsing**: Converts natural language questions into structured, checkable claims using OpenAI
-- **Market Retrieval**: Uses embeddings to find relevant Polymarket markets
-- **AI Reranking**: Reranks candidates for exact match using GPT-4
+- **Question Parsing**: Converts natural language questions into structured, checkable claims using Google Gemini
+- **Market Retrieval**: Uses Gemini embeddings to find relevant Polymarket markets
+- **AI Reranking**: Reranks candidates for exact match using Gemini
 - **Evidence Grounding**: Fetches real-time market data (prices, spreads, volume) from Polymarket
 - **Confidence Scoring**: Computes confidence based on match quality, volume, spread, and recency
 - **Beautiful UI**: Modern React UI with TailwindCSS, Radix UI, and Framer Motion
@@ -16,7 +16,7 @@ An AI-first MVP that converts questions into checkable claims and retrieves evid
 - **Frontend**: React 18 + TypeScript + Vite
 - **UI**: TailwindCSS + Radix UI + Framer Motion
 - **Backend**: Convex (queries/mutations/actions + scheduler)
-- **AI**: OpenAI (embeddings + chat completions with structured outputs)
+- **AI**: Google Gemini via `@google/genai` (chat: `gemini-3.8-flash`, embeddings: `gemini-embedding-2`)
 - **Data Source**: Polymarket (Gamma API for metadata + CLOB API for prices/order book)
 - **Hosting**: Vercel
 
@@ -26,14 +26,14 @@ An AI-first MVP that converts questions into checkable claims and retrieves evid
 
 - Node.js 18+ and npm
 - Convex account (sign up at [convex.dev](https://convex.dev))
-- OpenAI API key
+- [Gemini API key](https://aistudio.google.com/apikey)
 - Vercel account (for deployment)
 
 ### 1. Install Dependencies
 
 ```bash
 npm install
-cd client && npm install
+# Root `npm run build` also installs and builds the client
 ```
 
 ### 2. Set Up Convex
@@ -53,6 +53,8 @@ This will create a `convex.json` file. Note your deployment URL.
 
 ### 3. Configure Environment Variables
 
+See `.env.example` for the full list.
+
 #### Client (`.env` in `client/` directory)
 
 ```env
@@ -64,15 +66,27 @@ VITE_CONVEX_URL=https://your-deployment.convex.cloud
 Go to your Convex dashboard → Settings → Environment Variables and add:
 
 ```env
-OPENAI_API_KEY=sk-...
-OPENAI_EMBED_MODEL=text-embedding-3-small
-OPENAI_CHAT_MODEL=gpt-4o-mini
+GEMINI_API_KEY=...
+GEMINI_CHAT_MODEL=gemini-3.8-flash
+GEMINI_EMBED_MODEL=gemini-embedding-2
 POLYMARKET_GAMMA_BASE=https://gamma-api.polymarket.com
 POLYMARKET_CLOB_BASE=https://clob.polymarket.com
 APP_PUBLIC_BASE_URL=http://localhost:5173
 ```
 
-**IMPORTANT**: Never commit API keys. The `OPENAI_API_KEY` must only be set in Convex (server-side), never in client code.
+Optional: `GEMINI_EMBED_DIMENSIONS` (`768`, `1536`, or `3072`) to truncate Matryoshka embeddings.
+
+**IMPORTANT**: Never commit API keys. `GEMINI_API_KEY` must only be set in Convex (and optionally the Node server), never in client code.
+
+#### Embedding re-index
+
+Gemini `gemini-embedding-2` defaults to **3072** dimensions (OpenAI `text-embedding-3-small` was **1536**). Cosine similarity skips mismatched vectors. After changing embed model/dimensions, re-run ingestion so stored market embeddings match:
+
+```bash
+npx convex run actions/ingestMarkets:ingestMarkets '{"cursor":null}'
+```
+
+Ingestion also regenerates embeddings when the stored `model` differs from the current `GEMINI_EMBED_MODEL`.
 
 ### 4. Generate Convex API Types
 
@@ -120,6 +134,7 @@ polymarket-fact-checker/
 │   └── vite.config.ts
 ├── convex/                 # Convex backend
 │   ├── actions/            # Server actions
+│   │   ├── gemini.ts       # Gemini client helpers (@google/genai)
 │   │   ├── aiEmbed.ts      # Embedding generation
 │   │   ├── aiParseClaim.ts # Question parsing
 │   │   ├── aiRerank.ts     # Market reranking
@@ -141,20 +156,20 @@ polymarket-fact-checker/
 ### 1. Question → Claim Parsing
 
 When a user asks a question, the system:
-- Uses OpenAI to parse the question into a structured claim
+- Uses Gemini to parse the question into a structured claim
 - Extracts entities, time windows, and ambiguities
-- Falls back to simple heuristics if OpenAI fails
+- Falls back to simple heuristics if Gemini fails
 
 ### 2. Market Retrieval
 
 - Builds a retrieval text from the parsed claim
-- Embeds it using OpenAI embeddings
+- Embeds it using Gemini embeddings
 - Computes cosine similarity to all market embeddings
-- Returns top 50 candidates
+- Returns top candidates (skips vectors with mismatched dimensions)
 
 ### 3. AI Reranking
 
-- Uses GPT-4 to compare the claim to each candidate market
+- Uses Gemini to compare the claim to each candidate market
 - Scores exactness (0-1) based on entities, timeframes, and question focus
 - Flags mismatches (wrong timeframe, different entity, etc.)
 
@@ -176,7 +191,7 @@ confidence = 0.55 * matchScore +
 
 ### 6. Answer Generation
 
-- Generates evidence-grounded summary using OpenAI
+- Generates evidence-grounded summary using Gemini
 - Uses ONLY provided evidence fields (no hallucination)
 - Returns probability, confidence, and top alternatives
 
@@ -185,13 +200,21 @@ confidence = 0.55 * matchScore +
 - **Gamma market list**: 6 hours
 - **Per-market book/price**: 30 seconds
 - **Per-market trades**: 2 minutes
-- **Embeddings**: Forever (cached by hash)
+- **Embeddings**: Forever (cached by hash of text + model + role + dims)
 
 ## Scheduler
 
 The Convex scheduler runs:
 - **Every 6 hours**: Ingest new/updated markets from Polymarket
 - **Every 2 minutes**: Refresh "hot markets" (markets from recent queries)
+
+## Build
+
+```bash
+npm run build
+```
+
+Installs `client/` dependencies if needed, then runs the Vite production build.
 
 ## Deployment
 
@@ -202,8 +225,9 @@ The Convex scheduler runs:
    npx convex deploy
    ```
 
-2. **Update client env var**:
-   - Set `VITE_CONVEX_URL` in Vercel dashboard (Environment Variables)
+2. **Set env vars** (see `.env.example`):
+   - Vercel: at least `VITE_CONVEX_URL`
+   - Convex: `GEMINI_API_KEY` (+ optional `GEMINI_CHAT_MODEL` / `GEMINI_EMBED_MODEL`)
 
 3. **Deploy frontend**:
    ```bash
@@ -215,7 +239,7 @@ The Convex scheduler runs:
 
 ### Vercel Configuration
 
-Create `vercel.json` in the root:
+`vercel.json` in the root:
 
 ```json
 {
@@ -228,17 +252,11 @@ Create `vercel.json` in the root:
 
 ## Testing
 
-Run unit tests:
+Run connection checks:
 
 ```bash
-cd convex
-npm test
+npx convex run actions/testConnections:testConnections
 ```
-
-Tests cover:
-- Cosine similarity calculation
-- Confidence calculation
-- Zod schema validation
 
 ## Known Limitations
 
@@ -251,6 +269,8 @@ Tests cover:
 4. **Rate limiting**: Basic per-IP throttling via cache keys. For production, implement proper rate limiting.
 
 5. **Error handling**: Some Polymarket API endpoints may not be available. The system gracefully handles failures but may return partial data.
+
+6. **Embedding model changes**: Switching embed models or dimensions requires re-ingesting markets so stored vectors are comparable.
 
 ## Next Improvements
 

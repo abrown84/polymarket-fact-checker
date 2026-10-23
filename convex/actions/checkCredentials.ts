@@ -8,6 +8,7 @@
 
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { geminiChatText } from "./gemini";
 
 interface CredentialStatus {
   name: string;
@@ -248,38 +249,21 @@ async function testKalshi(): Promise<{ success: boolean; error?: string; details
 }
 
 /**
- * Test OpenRouter API
+ * Test Gemini API
  */
-async function testOpenRouter(): Promise<{ success: boolean; error?: string; details?: any }> {
-  const key = process.env.OPENAI_API_KEY;
+async function testGemini(): Promise<{ success: boolean; error?: string; details?: any }> {
+  const key = process.env.GEMINI_API_KEY;
   if (!key) {
-    return { success: false, error: "OPENAI_API_KEY not set" };
+    return { success: false, error: "GEMINI_API_KEY not set" };
   }
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini",
-        messages: [{ role: "user", content: "test" }],
-        max_tokens: 5,
-      }),
-      signal: AbortSignal.timeout(10000),
+    const content = await geminiChatText({
+      user: "test",
+      temperature: 0,
+      maxOutputTokens: 8,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return {
-        success: false,
-        error: `HTTP ${response.status}: ${errorText.substring(0, 100)}`,
-      };
-    }
-
-    return { success: true, details: { apiWorking: true } };
+    return { success: true, details: { apiWorking: true, responsePreview: content?.slice(0, 40) } };
   } catch (error: any) {
     return { success: false, error: error.message || String(error) };
   }
@@ -368,11 +352,11 @@ export const checkCredentials = action({
     // Check all credentials
     const credentials: CredentialStatus[] = [
       {
-        name: "OpenRouter API",
+        name: "Gemini API",
         required: true,
-        configured: isEnvSet("OPENAI_API_KEY"),
-        keys: ["OPENAI_API_KEY"],
-        status: isEnvSet("OPENAI_API_KEY") ? "✅ Set" : "❌ Missing",
+        configured: isEnvSet("GEMINI_API_KEY"),
+        keys: ["GEMINI_API_KEY"],
+        status: isEnvSet("GEMINI_API_KEY") ? "✅ Set" : "❌ Missing",
       },
       {
         name: "Twitter/X",
@@ -432,8 +416,8 @@ export const checkCredentials = action({
       if (cred.configured || cred.required) {
         let testResult;
         switch (cred.name) {
-          case "OpenRouter API":
-            testResult = await testOpenRouter();
+          case "Gemini API":
+            testResult = await testGemini();
             break;
           case "Twitter/X":
             testResult = await testTwitter();

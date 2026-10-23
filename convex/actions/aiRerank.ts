@@ -4,8 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { z } from "zod";
 import { ParsedClaimSchema } from "../utils";
-
-import { getChatConfig } from "./providerAuth";
+import { geminiChatJson } from "./gemini";
 
 const RerankResultSchema = z.object({
   ranked: z.array(
@@ -22,7 +21,7 @@ const RerankResultSchema = z.object({
 export type RerankResult = z.infer<typeof RerankResultSchema>;
 
 /**
- * Rerank candidates using AI to compare claim to market resolution meaning
+ * Rerank candidates using Gemini to compare claim to market resolution meaning
  */
 export const aiRerank = action({
   args: {
@@ -41,7 +40,7 @@ export const aiRerank = action({
       })
     ),
   },
-  handler: async (ctx, args) => {
+  handler: async (_ctx, args) => {
     const parsedClaim = ParsedClaimSchema.parse(args.parsedClaim);
 
     if (args.candidates.length === 0) {
@@ -52,19 +51,9 @@ export const aiRerank = action({
     }
 
     try {
-      const chat = await getChatConfig(ctx);
-      const response = await fetch(chat.apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${chat.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: chat.model,
-          messages: [
-            {
-              role: "system",
-              content: `You are a market matcher that scores how well prediction markets match a claim.
+      const parsed = await geminiChatJson({
+        temperature: 0.4,
+        system: `You are a market matcher that scores how well prediction markets match a claim.
 
 Output ONLY valid JSON matching this schema:
 {
@@ -87,10 +76,7 @@ Rules:
 - If entities are completely different, flag "different_entity"
 - If timeframes are very far off, flag "wrong_timeframe"
 - If the question focus is completely different, flag "different_question"`,
-            },
-            {
-              role: "user",
-              content: `Claim: ${JSON.stringify(parsedClaim, null, 2)}
+        user: `Claim: ${JSON.stringify(parsedClaim, null, 2)}
 
 Candidates:
 ${JSON.stringify(
@@ -103,33 +89,16 @@ ${JSON.stringify(
   null,
   2
 )}`,
-            },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.4, // Higher temperature for more flexible matching
-        }),
-        signal: AbortSignal.timeout(60000), // 60s timeout
       });
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} ${error}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-      const parsed = JSON.parse(content);
-
-      // Validate and return
       const validated = RerankResultSchema.parse(parsed);
       return validated;
     } catch (error) {
-      console.error("OpenRouter rerank failed, using similarity fallback:", error);
-      // Fallback: use similarity scores directly
+      console.error("Gemini rerank failed, using similarity fallback:", error);
       return {
         ranked: args.candidates.map((c) => ({
           polymarketMarketId: c.polymarketMarketId,
-          matchScore: Math.max(0, Math.min(1, c.similarity * 1.2)), // Scale similarity to 0-1
+          matchScore: Math.max(0, Math.min(1, c.similarity * 1.2)),
           reasons: ["Based on embedding similarity"],
           mismatchFlags: [],
         })),
