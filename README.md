@@ -270,3 +270,7 @@ MIT
 ## Support
 
 For issues or questions, please open an issue on GitHub.
+
+---
+
+Built by [Brown Industries](https://brwnindustries.com) · [Book an AI Ops Audit](https://brwnindustries.com/ai-ops)
