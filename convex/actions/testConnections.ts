@@ -7,12 +7,14 @@
 
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { geminiEmbed, getGeminiEmbedModel } from "./gemini";
-import { gatewayChatText, getChatModel } from "./oneGateway";
+import {
+  gatewayChatText,
+  gatewayEmbed,
+  getChatModel,
+  getEmbedModel,
+  getOneGatewayConfig,
+} from "./oneGateway";
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const ONE_GATEWAY_TOKEN = process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
-const GEMINI_EMBED_MODEL = process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2";
 const POLYMARKET_GAMMA_BASE = process.env.POLYMARKET_GAMMA_BASE || "https://gamma-api.polymarket.com";
 const POLYMARKET_CLOB_BASE = process.env.POLYMARKET_CLOB_BASE || "https://clob.polymarket.com";
 const TWITTER_BEARER_TOKEN = process.env.TWITTER_BEARER_TOKEN;
@@ -164,34 +166,30 @@ async function testClobAPI(): Promise<TestResult> {
 }
 
 /**
- * Test Gemini Embeddings API
+ * Test One Gateway Embeddings API (Gemini embeddings via gateway)
  */
-async function testGeminiEmbeddings(): Promise<TestResult> {
+async function testOneGatewayEmbeddings(): Promise<TestResult> {
   const startTime = Date.now();
-  if (!GEMINI_API_KEY) {
-    return {
-      name: "Gemini Embeddings API",
-      success: false,
-      error: "GEMINI_API_KEY environment variable not set",
-      duration: Date.now() - startTime,
-    };
-  }
+  const gw = getOneGatewayConfig();
 
   try {
-    const embedding = await geminiEmbed("test connection", { role: "query" });
+    const embedding = await gatewayEmbed("test connection", { role: "query" });
     return {
-      name: "Gemini Embeddings API",
+      name: "One Gateway Embeddings API",
       success: true,
       details: {
-        model: getGeminiEmbedModel(),
+        baseUrl: gw.baseUrl,
+        model: getEmbedModel(),
         embeddingLength: Array.isArray(embedding) ? embedding.length : 0,
+        expectedDimensions: gw.embedDimensions,
         hasEmbedding: !!embedding,
+        auth: gw.token ? "bearer" : "none",
       },
       duration: Date.now() - startTime,
     };
   } catch (error: any) {
     return {
-      name: "Gemini Embeddings API",
+      name: "One Gateway Embeddings API",
       success: false,
       error: error.message || String(error),
       duration: Date.now() - startTime,
@@ -204,28 +202,25 @@ async function testGeminiEmbeddings(): Promise<TestResult> {
  */
 async function testOneGatewayChat(): Promise<TestResult> {
   const startTime = Date.now();
-  if (!ONE_GATEWAY_TOKEN) {
-    return {
-      name: "One Gateway Chat API",
-      success: false,
-      error: "ONE_GATEWAY_TOKEN (or OPENCLAW_GATEWAY_TOKEN) environment variable not set",
-      duration: Date.now() - startTime,
-    };
-  }
+  const gw = getOneGatewayConfig();
 
   try {
+    // gemini-3.8-flash may spend tokens on thinking; keep maxTokens high enough
+    // that the visible reply is not truncated to empty.
     const content = await gatewayChatText({
       user: "Say 'test successful' and nothing else.",
       temperature: 0,
-      maxTokens: 16,
+      maxTokens: 64,
     });
     return {
       name: "One Gateway Chat API",
       success: true,
       details: {
+        baseUrl: gw.baseUrl,
         model: getChatModel(),
         response: content,
         hasResponse: !!content,
+        auth: gw.token ? "bearer" : "none",
       },
       duration: Date.now() - startTime,
     };
@@ -645,13 +640,13 @@ export const testConnections = action({
     results.push(clobResult);
     console.log(`${clobResult.success ? "✓" : "✗"} ${clobResult.name}: ${clobResult.success ? "SUCCESS" : clobResult.error}`);
 
-    // Test 3: OpenRouter Embeddings
-    console.log("\nTesting Gemini Embeddings API...");
-    const embedResult = await testGeminiEmbeddings();
+    // Test 3: One Gateway Embeddings
+    console.log("\nTesting One Gateway Embeddings API...");
+    const embedResult = await testOneGatewayEmbeddings();
     results.push(embedResult);
     console.log(`${embedResult.success ? "✓" : "✗"} ${embedResult.name}: ${embedResult.success ? "SUCCESS" : embedResult.error}`);
 
-    // Test 4: OpenRouter Chat
+    // Test 4: One Gateway Chat
     console.log("\nTesting One Gateway Chat API...");
     const chatResult = await testOneGatewayChat();
     results.push(chatResult);

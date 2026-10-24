@@ -1,27 +1,23 @@
-import { GoogleGenAI } from '@google/genai';
-
+const DEFAULT_GATEWAY_URL = 'https://brwnindustries.com/labs/one-gateway';
 const DEFAULT_CHAT_MODEL = 'gemini-3.8-flash';
 const DEFAULT_EMBED_MODEL = 'gemini-embedding-2';
 
 type ChatMessage = { role: string; content: string };
 
 function normalizeBaseUrl(url: string): string {
-  return url.replace(/\/+$/, '');
+  return url.replace(/\/+$/, '').replace(/\/v1$/i, '');
 }
 
 function getGatewayConfig() {
   const token =
-    process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
-  if (!token) {
-    throw new Error(
-      'Missing gateway token. Set ONE_GATEWAY_TOKEN (or OPENCLAW_GATEWAY_TOKEN).'
-    );
-  }
+    process.env.ONE_GATEWAY_TOKEN ||
+    process.env.OPENCLAW_GATEWAY_TOKEN ||
+    undefined;
   return {
     baseUrl: normalizeBaseUrl(
       process.env.ONE_GATEWAY_URL ||
         process.env.OPENCLAW_BASE_URL ||
-        'http://127.0.0.1:18789'
+        DEFAULT_GATEWAY_URL
     ),
     token,
     model:
@@ -31,7 +27,22 @@ function getGatewayConfig() {
       DEFAULT_CHAT_MODEL,
     agentId:
       process.env.ONE_GATEWAY_AGENT || process.env.OPENCLAW_AGENT_ID || 'main',
+    embedModel:
+      process.env.ONE_GATEWAY_EMBED_MODEL ||
+      process.env.GEMINI_EMBED_MODEL ||
+      DEFAULT_EMBED_MODEL,
   };
+}
+
+function gatewayHeaders(gw: { token?: string; agentId: string }): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-openclaw-agent-id': gw.agentId,
+  };
+  if (gw.token) {
+    headers.Authorization = `Bearer ${gw.token}`;
+  }
+  return headers;
 }
 
 /**
@@ -45,11 +56,7 @@ export async function chatComplete(
   const gw = getGatewayConfig();
   const res = await fetch(`${gw.baseUrl}/v1/chat/completions`, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${gw.token}`,
-      'Content-Type': 'application/json',
-      'x-openclaw-agent-id': gw.agentId,
-    },
+    headers: gatewayHeaders(gw),
     body: JSON.stringify({
       model: opts?.model || gw.model,
       messages,
@@ -65,25 +72,22 @@ export async function chatComplete(
   return content;
 }
 
-/** Embeddings stay on Gemini — one-gateway has no embeddings API. */
+/** Embeddings via One Gateway (`POST /v1/embeddings`, Gemini 3072-d). */
 export async function createEmbedding(text: string): Promise<number[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('Missing GEMINI_API_KEY env var');
-
-  const dimensionsRaw = process.env.GEMINI_EMBED_DIMENSIONS;
-  const dimensions = dimensionsRaw
-    ? Number.parseInt(dimensionsRaw, 10)
-    : undefined;
-
-  const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.embedContent({
-    model: process.env.GEMINI_EMBED_MODEL || DEFAULT_EMBED_MODEL,
-    contents: text,
-    ...(dimensions && Number.isFinite(dimensions) && dimensions > 0
-      ? { config: { outputDimensionality: dimensions } }
-      : {}),
+  const gw = getGatewayConfig();
+  const res = await fetch(`${gw.baseUrl}/v1/embeddings`, {
+    method: 'POST',
+    headers: gatewayHeaders(gw),
+    body: JSON.stringify({
+      model: gw.embedModel,
+      input: text,
+    }),
   });
-  const values = response.embeddings?.[0]?.values;
-  if (!values) throw new Error('Empty Gemini embedding response');
+  if (!res.ok) throw new Error(`Embedding error: ${res.status}`);
+  const json = (await res.json()) as {
+    data?: { embedding?: number[] }[];
+  };
+  const values = json.data?.[0]?.embedding;
+  if (!values) throw new Error('Empty One Gateway embedding response');
   return values;
 }

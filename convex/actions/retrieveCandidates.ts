@@ -79,7 +79,7 @@ export const retrieveCandidates = action({
     }
 
     // Compute similarity scores (skip vectors with mismatched dimensions,
-    // e.g. leftover OpenAI 1536-d embeddings after switching to Gemini)
+    // e.g. leftover OpenAI 1536-d embeddings after switching to gateway Gemini 3072-d)
     const candidates: Array<{ polymarketMarketId: string; similarity: number }> = [];
     let skippedDimMismatch = 0;
     for (const emb of allEmbeddings) {
@@ -100,7 +100,8 @@ export const retrieveCandidates = action({
     if (skippedDimMismatch > 0) {
       console.warn(
         `[retrieveCandidates] Skipped ${skippedDimMismatch} embeddings with dimension mismatch ` +
-          `(query=${queryEmbedding.length}). Re-run ingestMarkets to re-index with the current Gemini embed model.`
+          `(query=${queryEmbedding.length}; expected One Gateway Gemini 3072-d). ` +
+          `Re-run ingestMarkets to re-index — search will miss those markets until then.`
       );
     }
     

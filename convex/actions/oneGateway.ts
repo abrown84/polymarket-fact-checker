@@ -1,34 +1,48 @@
 "use node";
 
 /**
- * Chat via One Gateway's OpenAI-compatible protocol.
+ * Chat + embeddings via One Gateway's OpenAI-compatible protocol.
  *
  * one-gateway (https://github.com/abrown84/one-gateway) is an OpenAI-compatible
  * client for an OpenClaw-style gateway. The published npm package currently
  * ships without a usable `dist`, so this module mirrors its client:
  *   POST {ONE_GATEWAY_URL}/v1/chat/completions
- *   Authorization: Bearer {ONE_GATEWAY_TOKEN}
+ *   POST {ONE_GATEWAY_URL}/v1/embeddings
+ *   Authorization: Bearer {ONE_GATEWAY_TOKEN}  (only when token is set)
  *   x-openclaw-agent-id: {ONE_GATEWAY_AGENT}
  *
- * Embeddings are not supported by one-gateway — see gemini.ts for embeddings.
+ * Default base URL: https://brwnindustries.com/labs/one-gateway
+ * Default chat model: gemini-3.8-flash
+ * Default embed model: gemini-embedding-2 (3072 dims)
  */
 
+export const DEFAULT_GATEWAY_URL =
+  "https://brwnindustries.com/labs/one-gateway";
 export const DEFAULT_CHAT_MODEL = "gemini-3.8-flash";
+export const DEFAULT_EMBED_MODEL = "gemini-embedding-2";
+/** Gateway Gemini embeddings currently return 3072 dimensions. */
+export const DEFAULT_EMBED_DIMENSIONS = 3072;
 
 export type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
 };
 
+export type EmbedRole = "query" | "document";
+
 export type OneGatewayConfig = {
   baseUrl: string;
-  token: string;
+  /** Optional — Authorization header is only sent when set. */
+  token?: string;
   primaryModel: string;
   fallbackModels: string[];
   agentId: string;
   temperature: number;
   maxTokens: number;
   timeoutMs: number;
+  embedModel: string;
+  /** Expected embedding size (default 3072). */
+  embedDimensions: number;
 };
 
 function parseFallbacks(v = ""): string[] {
@@ -38,31 +52,46 @@ function parseFallbacks(v = ""): string[] {
     .filter(Boolean);
 }
 
-function normalizeBaseUrl(url: string): string {
-  return url.replace(/\/+$/, "");
+/** Strip trailing slashes and an optional trailing `/v1` (we append `/v1/...`). */
+export function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "").replace(/\/v1$/i, "");
+}
+
+function gatewayHeaders(config: OneGatewayConfig): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-openclaw-agent-id": config.agentId,
+  };
+  if (config.token) {
+    headers.Authorization = `Bearer ${config.token}`;
+  }
+  return headers;
 }
 
 /**
  * Resolve One Gateway config from env.
- * Prefers ONE_GATEWAY_* ; falls back to OPENCLAW_* (legacy) and GEMINI_CHAT_MODEL.
+ * Prefers ONE_GATEWAY_* ; falls back to OPENCLAW_* (legacy) and GEMINI_* aliases.
+ * Token is optional. URL defaults to the public Brown Industries gateway.
  */
 export function getOneGatewayConfig(
   env: Record<string, string | undefined> = process.env
 ): OneGatewayConfig {
-  const token = env.ONE_GATEWAY_TOKEN ?? env.OPENCLAW_GATEWAY_TOKEN;
-  if (!token) {
-    throw new Error(
-      "Missing gateway token. Set ONE_GATEWAY_TOKEN (or OPENCLAW_GATEWAY_TOKEN) in your environment."
-    );
-  }
+  const token =
+    env.ONE_GATEWAY_TOKEN ?? env.OPENCLAW_GATEWAY_TOKEN ?? undefined;
 
-  const baseUrl = normalizeBaseUrl(
-    env.ONE_GATEWAY_URL ?? env.OPENCLAW_BASE_URL ?? "http://127.0.0.1:18789"
-  );
+  const dimsRaw =
+    env.ONE_GATEWAY_EMBED_DIMENSIONS ?? env.GEMINI_EMBED_DIMENSIONS;
+  const parsedDims = dimsRaw ? Number.parseInt(dimsRaw, 10) : NaN;
+  const embedDimensions =
+    Number.isFinite(parsedDims) && parsedDims > 0
+      ? parsedDims
+      : DEFAULT_EMBED_DIMENSIONS;
 
   return {
-    baseUrl,
-    token,
+    baseUrl: normalizeBaseUrl(
+      env.ONE_GATEWAY_URL ?? env.OPENCLAW_BASE_URL ?? DEFAULT_GATEWAY_URL
+    ),
+    token: token || undefined,
     primaryModel:
       env.ONE_GATEWAY_MODEL ??
       env.GEMINI_CHAT_MODEL ??
@@ -82,6 +111,11 @@ export function getOneGatewayConfig(
     timeoutMs: Number(
       env.ONE_GATEWAY_TIMEOUT_MS ?? env.OPENCLAW_TIMEOUT_MS ?? 45000
     ),
+    embedModel:
+      env.ONE_GATEWAY_EMBED_MODEL ??
+      env.GEMINI_EMBED_MODEL ??
+      DEFAULT_EMBED_MODEL,
+    embedDimensions,
   };
 }
 
@@ -92,6 +126,37 @@ export function getChatModel(): string {
     process.env.OPENCLAW_CHAT_MODEL ||
     DEFAULT_CHAT_MODEL
   );
+}
+
+export function getEmbedModel(): string {
+  return (
+    process.env.ONE_GATEWAY_EMBED_MODEL ||
+    process.env.GEMINI_EMBED_MODEL ||
+    DEFAULT_EMBED_MODEL
+  );
+}
+
+export function getEmbedDimensions(): number {
+  return getOneGatewayConfig().embedDimensions;
+}
+
+/**
+ * Format text for gemini-embedding-2 task prefixes when that model is used.
+ * (https://ai.google.dev/gemini-api/docs/embeddings#task-types-with-embeddings-2)
+ */
+export function formatEmbedInput(
+  text: string,
+  role: EmbedRole = "query",
+  title?: string
+): string {
+  const model = getEmbedModel();
+  if (!model.startsWith("gemini-embedding-2")) {
+    return text;
+  }
+  if (role === "document") {
+    return `title: ${title || "none"} | text: ${text}`;
+  }
+  return `task: fact checking | query: ${text}`;
 }
 
 async function callOnce(args: {
@@ -106,11 +171,7 @@ async function callOnce(args: {
 
   const res = await fetch(`${config.baseUrl}/v1/chat/completions`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.token}`,
-      "Content-Type": "application/json",
-      "x-openclaw-agent-id": config.agentId,
-    },
+    headers: gatewayHeaders(config),
     body: JSON.stringify({
       model,
       messages,
@@ -235,4 +296,72 @@ export async function gatewayChatJson(opts: {
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/i, "");
   return JSON.parse(cleaned);
+}
+
+/**
+ * Embeddings through One Gateway (`POST /v1/embeddings`).
+ * Returns Gemini embeddings (default model gemini-embedding-2, 3072 dims).
+ */
+export async function gatewayEmbed(
+  text: string,
+  opts?: {
+    role?: EmbedRole;
+    title?: string;
+    model?: string;
+    config?: OneGatewayConfig;
+  }
+): Promise<number[]> {
+  const config = opts?.config ?? getOneGatewayConfig();
+  const model = opts?.model ?? config.embedModel;
+  const input = formatEmbedInput(text, opts?.role ?? "query", opts?.title);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  try {
+    const body: Record<string, unknown> = {
+      model,
+      input,
+    };
+    // OpenAI-compatible optional dimensions; gateway currently returns 3072
+    // regardless, but pass through when explicitly configured.
+    if (
+      config.embedDimensions &&
+      config.embedDimensions !== DEFAULT_EMBED_DIMENSIONS
+    ) {
+      body.dimensions = config.embedDimensions;
+    }
+
+    const res = await fetch(`${config.baseUrl}/v1/embeddings`, {
+      method: "POST",
+      headers: gatewayHeaders(config),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    const rawText = await res.text();
+    let json: unknown;
+    try {
+      json = JSON.parse(rawText);
+    } catch {
+      json = { raw: rawText.slice(0, 2048) };
+    }
+
+    if (!res.ok) {
+      throw new Error(
+        `One Gateway embeddings HTTP ${res.status}: ${typeof json === "object" ? JSON.stringify(json).slice(0, 500) : String(json)}`
+      );
+    }
+
+    const values = (
+      json as { data?: { embedding?: number[] }[] }
+    )?.data?.[0]?.embedding;
+
+    if (!values || !Array.isArray(values) || values.length === 0) {
+      throw new Error("Empty One Gateway embedding response");
+    }
+
+    return values;
+  } finally {
+    clearTimeout(timer);
+  }
 }

@@ -164,8 +164,13 @@ function resolveProvider(): Provider {
   if (explicit === "openai" || explicit === "openrouter") return explicit;
   if (explicit === "openclaw-bridge" || explicit === "openclaw") return "openclaw-bridge";
 
-  // Default: One Gateway when token is present
-  if (process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN) {
+  // Default: One Gateway (public URL works without a token)
+  if (
+    process.env.ONE_GATEWAY_URL ||
+    process.env.OPENCLAW_BASE_URL ||
+    process.env.ONE_GATEWAY_TOKEN ||
+    process.env.OPENCLAW_GATEWAY_TOKEN
+  ) {
     return "one-gateway";
   }
 
@@ -178,24 +183,23 @@ function resolveProvider(): Provider {
 
 /**
  * Chat config. Primary path is One Gateway (OpenAI-compatible; see oneGateway.ts).
- * Embeddings stay on Gemini (one-gateway has no embeddings API).
+ * Embeddings also go through One Gateway (`POST /v1/embeddings`).
  */
 export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
   const provider = resolveProvider();
 
   if (provider === "one-gateway" || provider === "openclaw-bridge") {
     const apiKey =
-      process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
-    if (!apiKey) {
-      throw new Error(
-        "Missing ONE_GATEWAY_TOKEN (or OPENCLAW_GATEWAY_TOKEN) env var"
-      );
-    }
+      process.env.ONE_GATEWAY_TOKEN ||
+      process.env.OPENCLAW_GATEWAY_TOKEN ||
+      "";
     const base = (
       process.env.ONE_GATEWAY_URL ||
       process.env.OPENCLAW_BASE_URL ||
-      "http://127.0.0.1:18789"
-    ).replace(/\/+$/, "");
+      "https://brwnindustries.com/labs/one-gateway"
+    )
+      .replace(/\/+$/, "")
+      .replace(/\/v1$/i, "");
     return {
       provider: provider === "openclaw-bridge" ? "openclaw-bridge" : "one-gateway",
       apiUrl: `${base}/v1/chat/completions`,
@@ -241,14 +245,26 @@ export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provide
 }
 
 export async function getEmbedConfig(_ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
-  // Embeddings always use Gemini — one-gateway does not expose embeddings.
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("Missing GEMINI_API_KEY env var (required for embeddings)");
+  // Embeddings go through One Gateway (Gemini embeddings, 3072 dims).
+  const apiKey =
+    process.env.ONE_GATEWAY_TOKEN ||
+    process.env.OPENCLAW_GATEWAY_TOKEN ||
+    "";
+  const base = (
+    process.env.ONE_GATEWAY_URL ||
+    process.env.OPENCLAW_BASE_URL ||
+    "https://brwnindustries.com/labs/one-gateway"
+  )
+    .replace(/\/+$/, "")
+    .replace(/\/v1$/i, "");
   return {
-    provider: "gemini",
-    apiUrl: "https://generativelanguage.googleapis.com/v1beta",
+    provider: "one-gateway",
+    apiUrl: `${base}/v1/embeddings`,
     apiKey,
-    model: process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2",
+    model:
+      process.env.ONE_GATEWAY_EMBED_MODEL ||
+      process.env.GEMINI_EMBED_MODEL ||
+      "gemini-embedding-2",
   };
 }
 

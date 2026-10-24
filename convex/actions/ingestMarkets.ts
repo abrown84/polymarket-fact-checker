@@ -295,24 +295,25 @@ export const ingestMarkets = action({
             polymarketMarketId,
           });
 
+          // One Gateway Gemini embeddings: gemini-embedding-2 → 3072-d.
+          // Legacy OpenAI text-embedding-3-small was 1536-d — re-index those.
           const embedModel =
-            process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2";
-          const expectedDims = process.env.GEMINI_EMBED_DIMENSIONS
-            ? Number.parseInt(process.env.GEMINI_EMBED_DIMENSIONS, 10)
-            : undefined;
+            process.env.ONE_GATEWAY_EMBED_MODEL ||
+            process.env.GEMINI_EMBED_MODEL ||
+            "gemini-embedding-2";
+          const expectedDimsRaw =
+            process.env.ONE_GATEWAY_EMBED_DIMENSIONS ||
+            process.env.GEMINI_EMBED_DIMENSIONS;
+          const expectedDims = expectedDimsRaw
+            ? Number.parseInt(expectedDimsRaw, 10)
+            : 3072;
           const embeddingModelMismatch =
             !!existingEmbedding && existingEmbedding.model !== embedModel;
           const embeddingDimMismatch =
             !!existingEmbedding &&
             Array.isArray(existingEmbedding.vector) &&
-            ((expectedDims
-              ? existingEmbedding.vector.length !== expectedDims
-              : false) ||
-              // Legacy OpenAI text-embedding-3-small vectors are 1536-d;
-              // Gemini embedding-2 defaults to 3072-d.
-              (existingEmbedding.vector.length > 0 &&
-                existingEmbedding.model &&
-                !String(existingEmbedding.model).startsWith("gemini-embedding")));
+            existingEmbedding.vector.length > 0 &&
+            existingEmbedding.vector.length !== expectedDims;
 
           const needsEmbedding =
             !existingEmbedding || // No embedding exists

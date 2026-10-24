@@ -249,19 +249,14 @@ async function testKalshi(): Promise<{ success: boolean; error?: string; details
 }
 
 /**
- * Test One Gateway chat API
+ * Test One Gateway chat API (token optional; uses default public URL)
  */
 async function testOneGateway(): Promise<{ success: boolean; error?: string; details?: any }> {
-  const key = process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
-  if (!key) {
-    return { success: false, error: "ONE_GATEWAY_TOKEN (or OPENCLAW_GATEWAY_TOKEN) not set" };
-  }
-
   try {
     const content = await gatewayChatText({
-      user: "test",
+      user: "Reply with OK.",
       temperature: 0,
-      maxTokens: 8,
+      maxTokens: 64,
     });
     return { success: true, details: { apiWorking: true, responsePreview: content?.slice(0, 40) } };
   } catch (error: any) {
@@ -352,21 +347,17 @@ export const checkCredentials = action({
     // Check all credentials
     const credentials: CredentialStatus[] = [
       {
-        name: "One Gateway Chat",
+        name: "One Gateway (chat + embeddings)",
         required: true,
-        configured: isEnvSet("ONE_GATEWAY_TOKEN") || isEnvSet("OPENCLAW_GATEWAY_TOKEN"),
-        keys: ["ONE_GATEWAY_TOKEN", "ONE_GATEWAY_URL", "ONE_GATEWAY_MODEL"],
-        status:
-          isEnvSet("ONE_GATEWAY_TOKEN") || isEnvSet("OPENCLAW_GATEWAY_TOKEN")
-            ? "✅ Set"
-            : "❌ Missing",
-      },
-      {
-        name: "Gemini Embeddings",
-        required: true,
-        configured: isEnvSet("GEMINI_API_KEY"),
-        keys: ["GEMINI_API_KEY", "GEMINI_EMBED_MODEL"],
-        status: isEnvSet("GEMINI_API_KEY") ? "✅ Set" : "❌ Missing",
+        // Token optional; URL has a public default. Always "configured" for connectivity test.
+        configured: true,
+        keys: [
+          "ONE_GATEWAY_URL",
+          "ONE_GATEWAY_MODEL",
+          "ONE_GATEWAY_EMBED_MODEL",
+          "ONE_GATEWAY_TOKEN",
+        ],
+        status: "✅ Set",
       },
       {
         name: "Twitter/X",
@@ -426,14 +417,8 @@ export const checkCredentials = action({
       if (cred.configured || cred.required) {
         let testResult;
         switch (cred.name) {
-          case "One Gateway Chat":
+          case "One Gateway (chat + embeddings)":
             testResult = await testOneGateway();
-            break;
-          case "Gemini Embeddings":
-            // Chat test covers gateway; embeddings are validated in testConnections
-            testResult = isEnvSet("GEMINI_API_KEY")
-              ? { success: true, details: { configured: true } }
-              : { success: false, error: "GEMINI_API_KEY not set" };
             break;
           case "Twitter/X":
             testResult = await testTwitter();

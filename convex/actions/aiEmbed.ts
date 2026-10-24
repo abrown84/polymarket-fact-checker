@@ -5,10 +5,11 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { hashString } from "../utils";
 import {
-  geminiEmbed,
-  getGeminiEmbedModel,
+  gatewayEmbed,
+  getEmbedModel,
+  getEmbedDimensions,
   type EmbedRole,
-} from "./gemini";
+} from "./oneGateway";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -62,7 +63,7 @@ async function setCache(
 }
 
 /**
- * Embed text using Google Gemini embeddings (@google/genai).
+ * Embed text via One Gateway (`POST /v1/embeddings`, Gemini embeddings).
  * Caches embeddings by hash(text + model + role + dims) to reduce cost.
  */
 export const embedText = action({
@@ -72,16 +73,16 @@ export const embedText = action({
     title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const model = getGeminiEmbedModel();
+    const model = getEmbedModel();
     const role: EmbedRole = args.role ?? "query";
-    const dims = process.env.GEMINI_EMBED_DIMENSIONS || "default";
+    const dims = getEmbedDimensions();
     const cacheKey = `embed:${hashString(`${args.text}|${model}|${role}|${args.title || ""}|${dims}`)}`;
     const cached = await getCache(ctx, cacheKey);
     if (cached) {
       return cached;
     }
 
-    const embedding = await geminiEmbed(args.text, {
+    const embedding = await gatewayEmbed(args.text, {
       role,
       title: args.title,
     });

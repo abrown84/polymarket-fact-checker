@@ -17,7 +17,7 @@ export function clamp01(value: number): number {
 /**
  * Compute cosine similarity between two vectors.
  * Returns 0 when dimensions differ (e.g. leftover OpenAI 1536-d vectors vs
- * Gemini gemini-embedding-2 default 3072-d). Re-run market ingestion to re-index.
+ * One Gateway Gemini gemini-embedding-2 3072-d). Re-run market ingestion to re-index.
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) {
