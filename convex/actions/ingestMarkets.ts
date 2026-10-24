@@ -41,8 +41,9 @@ interface IngestResult {
 }
 
 /**
- * Ingest markets from Polymarket Gamma API
- * Processes in batches to avoid long serverless runs
+ * Ingest markets from Polymarket Gamma API (manual / legacy).
+ * Prefer scheduled `marketMaintenance.incrementalIngest` + `healEmbeddings`
+ * — those are rate-limited and self-healing; no manual convex run needed.
  */
 export const ingestMarkets = action({
   args: {

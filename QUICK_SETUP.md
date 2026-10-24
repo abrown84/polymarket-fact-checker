@@ -23,12 +23,12 @@ Set `VITE_CONVEX_URL` to your Convex deployment URL.
 npx convex run actions/testConnections:testConnections
 ```
 
-### Re-index embeddings (required if vectors are not 3072-d)
+### Embeddings heal automatically
 
-Gateway Gemini embeddings are **3072** dimensions. Leftover OpenAI `text-embedding-3-small` vectors are **1536-d** and are skipped at search time until re-ingested:
+Gateway Gemini embeddings are **3072-d**. The `heal-embeddings` cron re-indexes mismatches in small batches; keyword fallback covers pending markets in search. Check:
 
 ```bash
-npx convex run actions/ingestMarkets:ingestMarkets '{"cursor":null}'
+npx convex run queries:getIngestStatus
 ```
 
 ---

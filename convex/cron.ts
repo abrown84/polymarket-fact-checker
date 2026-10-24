@@ -1,39 +1,38 @@
 import { cronJobs } from "convex/server";
-import { internal } from "./_generated/api";
+import { api } from "./_generated/api";
 
-// Type-safe internal API references
-const internalApi = internal as {
+// Public actions scheduled via `api` (same cast pattern as the rest of the repo).
+const apiRef = api as {
   actions: {
-    ingestMarkets: { ingestMarkets: any; refreshHotMarkets: any };
+    marketMaintenance: {
+      incrementalIngest: any;
+      healEmbeddings: any;
+    };
   };
 };
 
 const crons = cronJobs();
 
-// Ingest markets every 6 hours
-// Process 1000 markets per run (will continue with cursor if more available)
+/**
+ * Crawl Polymarket Gamma in small offset pages (metadata only).
+ * Recent updates are also pulled each tick. Embeddings are healed separately.
+ */
 crons.interval(
-  "ingest-markets",
-  { hours: 6 },
-  internalApi.actions.ingestMarkets.ingestMarkets,
-  { cursor: null, limit: 1000 }
+  "incremental-market-ingest",
+  { minutes: 15 },
+  apiRef.actions.marketMaintenance.incrementalIngest,
+  {}
 );
 
-// Additional frequent ingestion for new markets (every 2 hours)
+/**
+ * Re-embed missing / mismatched markets in tiny batches through One Gateway.
+ * ~1 batch API call per tick (up to 8 texts), under ~10/min and ~500/day caps.
+ */
 crons.interval(
-  "ingest-markets-frequent",
-  { hours: 2 },
-  internalApi.actions.ingestMarkets.ingestMarkets,
-  { cursor: null, limit: 1000 }
+  "heal-embeddings",
+  { minutes: 1 },
+  apiRef.actions.marketMaintenance.healEmbeddings,
+  {}
 );
-
-// Refresh hot markets every 2 minutes (markets that appeared in last 50 queries)
-// Note: This requires the refreshHotMarkets action to be implemented
-// crons.interval(
-//   "refresh-hot-markets",
-//   { minutes: 2 },
-//   internalApi.actions.ingestMarkets.refreshHotMarkets,
-//   {}
-// );
 
 export default crons;

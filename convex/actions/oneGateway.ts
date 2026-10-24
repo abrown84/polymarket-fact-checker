@@ -298,39 +298,57 @@ export async function gatewayChatJson(opts: {
   return JSON.parse(cleaned);
 }
 
-/**
- * Embeddings through One Gateway (`POST /v1/embeddings`).
- * Returns Gemini embeddings (default model gemini-embedding-2, 3072 dims).
- */
-export async function gatewayEmbed(
-  text: string,
-  opts?: {
-    role?: EmbedRole;
-    title?: string;
-    model?: string;
-    config?: OneGatewayConfig;
+/** Thrown when the gateway returns HTTP 429 (rate limited). */
+export class GatewayRateLimitError extends Error {
+  status = 429;
+  retryAfterMs: number;
+
+  constructor(message: string, retryAfterMs = 60_000) {
+    super(message);
+    this.name = "GatewayRateLimitError";
+    this.retryAfterMs = retryAfterMs;
   }
-): Promise<number[]> {
+}
+
+function parseRetryAfterMs(res: Response, json: unknown): number {
+  const header = res.headers.get("retry-after");
+  if (header) {
+    const asNum = Number(header);
+    if (Number.isFinite(asNum) && asNum >= 0) return asNum * 1000;
+    const asDate = Date.parse(header);
+    if (Number.isFinite(asDate)) return Math.max(0, asDate - Date.now());
+  }
+  const bodyRetry =
+    typeof json === "object" &&
+    json &&
+    "retry_after" in json &&
+    typeof (json as { retry_after: unknown }).retry_after === "number"
+      ? (json as { retry_after: number }).retry_after
+      : null;
+  if (bodyRetry != null && Number.isFinite(bodyRetry)) {
+    return bodyRetry > 1000 ? bodyRetry : bodyRetry * 1000;
+  }
+  return 60_000;
+}
+
+async function postEmbeddings(
+  input: string | string[],
+  opts?: { model?: string; config?: OneGatewayConfig }
+): Promise<number[][]> {
   const config = opts?.config ?? getOneGatewayConfig();
   const model = opts?.model ?? config.embedModel;
-  const input = formatEmbedInput(text, opts?.role ?? "query", opts?.title);
+
+  const body: Record<string, unknown> = { model, input };
+  if (
+    config.embedDimensions &&
+    config.embedDimensions !== DEFAULT_EMBED_DIMENSIONS
+  ) {
+    body.dimensions = config.embedDimensions;
+  }
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
   try {
-    const body: Record<string, unknown> = {
-      model,
-      input,
-    };
-    // OpenAI-compatible optional dimensions; gateway currently returns 3072
-    // regardless, but pass through when explicitly configured.
-    if (
-      config.embedDimensions &&
-      config.embedDimensions !== DEFAULT_EMBED_DIMENSIONS
-    ) {
-      body.dimensions = config.embedDimensions;
-    }
-
     const res = await fetch(`${config.baseUrl}/v1/embeddings`, {
       method: "POST",
       headers: gatewayHeaders(config),
@@ -346,22 +364,68 @@ export async function gatewayEmbed(
       json = { raw: rawText.slice(0, 2048) };
     }
 
+    if (res.status === 429) {
+      throw new GatewayRateLimitError(
+        `One Gateway embeddings rate limited (429): ${typeof json === "object" ? JSON.stringify(json).slice(0, 300) : String(json)}`,
+        parseRetryAfterMs(res, json)
+      );
+    }
+
     if (!res.ok) {
       throw new Error(
         `One Gateway embeddings HTTP ${res.status}: ${typeof json === "object" ? JSON.stringify(json).slice(0, 500) : String(json)}`
       );
     }
 
-    const values = (
-      json as { data?: { embedding?: number[] }[] }
-    )?.data?.[0]?.embedding;
-
-    if (!values || !Array.isArray(values) || values.length === 0) {
+    const rows = (json as { data?: { embedding?: number[]; index?: number }[] })
+      ?.data;
+    if (!rows || !Array.isArray(rows) || rows.length === 0) {
       throw new Error("Empty One Gateway embedding response");
     }
 
-    return values;
+    // Preserve input order (OpenAI-compatible responses may include index)
+    const sorted = [...rows].sort(
+      (a, b) => (a.index ?? 0) - (b.index ?? 0)
+    );
+    const vectors = sorted.map((r) => r.embedding);
+    if (vectors.some((v) => !v || !Array.isArray(v) || v.length === 0)) {
+      throw new Error("One Gateway embedding response missing vectors");
+    }
+    return vectors as number[][];
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Embeddings through One Gateway (`POST /v1/embeddings`).
+ * Returns Gemini embeddings (default model gemini-embedding-2, 3072 dims).
+ */
+export async function gatewayEmbed(
+  text: string,
+  opts?: {
+    role?: EmbedRole;
+    title?: string;
+    model?: string;
+    config?: OneGatewayConfig;
+  }
+): Promise<number[]> {
+  const input = formatEmbedInput(text, opts?.role ?? "query", opts?.title);
+  const [values] = await postEmbeddings(input, opts);
+  return values;
+}
+
+/**
+ * Batch embeddings — one HTTP call for many texts (gateway accepts `input: string[]`).
+ * Returns vectors in the same order as `items`.
+ */
+export async function gatewayEmbedBatch(
+  items: Array<{ text: string; role?: EmbedRole; title?: string }>,
+  opts?: { model?: string; config?: OneGatewayConfig }
+): Promise<number[][]> {
+  if (items.length === 0) return [];
+  const input = items.map((item) =>
+    formatEmbedInput(item.text, item.role ?? "document", item.title)
+  );
+  return postEmbeddings(input, opts);
 }

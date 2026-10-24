@@ -608,3 +608,62 @@ export const upsertGoogleTrend = mutation({
     }
   },
 });
+
+/**
+ * Upsert durable state for a scheduled ingest / re-embed job.
+ * Partial patch — omitted fields are left unchanged (except updatedAt).
+ */
+export const upsertIngestJob = mutation({
+  args: {
+    job: v.string(),
+    gammaOffset: v.optional(v.number()),
+    reembedCursor: v.optional(v.union(v.string(), v.null())),
+    embedsThisMinute: v.optional(v.number()),
+    embedsMinuteStartedAt: v.optional(v.number()),
+    embedsToday: v.optional(v.number()),
+    embedsDayStartedAt: v.optional(v.number()),
+    backoffUntil: v.optional(v.number()),
+    consecutiveErrors: v.optional(v.number()),
+    lastRunAt: v.optional(v.number()),
+    lastSuccessAt: v.optional(v.number()),
+    lastError: v.optional(v.union(v.string(), v.null())),
+    lastErrorAt: v.optional(v.number()),
+    lastResult: v.optional(v.any()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("ingestJobs")
+      .withIndex("by_job", (q) => q.eq("job", args.job))
+      .first();
+
+    const now = Date.now();
+    const { job, ...rest } = args;
+    const patch: Record<string, unknown> = { updatedAt: now };
+    for (const [key, value] of Object.entries(rest)) {
+      if (value !== undefined) patch[key] = value;
+    }
+
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("ingestJobs", {
+      job,
+      gammaOffset: args.gammaOffset ?? 0,
+      reembedCursor: args.reembedCursor ?? null,
+      embedsThisMinute: args.embedsThisMinute ?? 0,
+      embedsMinuteStartedAt: args.embedsMinuteStartedAt ?? now,
+      embedsToday: args.embedsToday ?? 0,
+      embedsDayStartedAt: args.embedsDayStartedAt ?? now,
+      backoffUntil: args.backoffUntil ?? 0,
+      consecutiveErrors: args.consecutiveErrors ?? 0,
+      lastRunAt: args.lastRunAt,
+      lastSuccessAt: args.lastSuccessAt,
+      lastError: args.lastError ?? null,
+      lastErrorAt: args.lastErrorAt,
+      lastResult: args.lastResult,
+      updatedAt: now,
+    });
+  },
+});

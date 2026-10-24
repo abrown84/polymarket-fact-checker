@@ -12,6 +12,7 @@ const internalApi = internal as {
     getCache: any;
     getMarket: any;
     getAllEmbeddings: any;
+    getAllMarkets: any;
     getRecentQueries: any;
   };
   mutations: {
@@ -40,10 +41,27 @@ interface MarketCandidate {
   volume: number | null;
   liquidity: number | null;
   similarity: number;
+  matchSource?: "embedding" | "keyword";
+}
+
+/** Simple token overlap score in [0, 1]. */
+function keywordScore(query: string, title: string, description: string): number {
+  const tokens = query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter((t) => t.length > 2);
+  if (tokens.length === 0) return 0;
+  const hay = `${title} ${description}`.toLowerCase();
+  let hits = 0;
+  for (const t of tokens) {
+    if (hay.includes(t)) hits++;
+  }
+  return hits / tokens.length;
 }
 
 /**
- * Retrieve candidate markets using embedding similarity
+ * Retrieve candidate markets using embedding similarity, with keyword fallback
+ * for markets that are not yet re-embedded (missing or dimension-mismatched).
  */
 export const retrieveCandidates = action({
   args: {
@@ -68,20 +86,19 @@ export const retrieveCandidates = action({
     });
 
     // Get all embeddings
-    const allEmbeddings: Array<{ polymarketMarketId: string; vector: number[] }> = 
+    const allEmbeddings: Array<{ polymarketMarketId: string; vector: number[]; model?: string }> =
       await ctx.runQuery(internalApi.queries.getAllEmbeddings);
 
     console.log(`[retrieveCandidates] Found ${allEmbeddings.length} embeddings in database`);
-    
-    if (allEmbeddings.length === 0) {
-      console.warn(`[retrieveCandidates] No embeddings found! Markets may not have embeddings generated.`);
-      return [];
-    }
 
-    // Compute similarity scores (skip vectors with mismatched dimensions,
-    // e.g. leftover OpenAI 1536-d embeddings after switching to gateway Gemini 3072-d)
-    const candidates: Array<{ polymarketMarketId: string; similarity: number }> = [];
+    const candidates: Array<{
+      polymarketMarketId: string;
+      similarity: number;
+      matchSource: "embedding" | "keyword";
+    }> = [];
+    const covered = new Set<string>();
     let skippedDimMismatch = 0;
+
     for (const emb of allEmbeddings) {
       if (!emb.vector || !Array.isArray(emb.vector) || emb.vector.length === 0) {
         console.warn(`[retrieveCandidates] Invalid embedding for market ${emb.polymarketMarketId}`);
@@ -95,25 +112,68 @@ export const retrieveCandidates = action({
       candidates.push({
         polymarketMarketId: emb.polymarketMarketId,
         similarity,
+        matchSource: "embedding",
       });
+      covered.add(emb.polymarketMarketId);
     }
+
     if (skippedDimMismatch > 0) {
       console.warn(
         `[retrieveCandidates] Skipped ${skippedDimMismatch} embeddings with dimension mismatch ` +
-          `(query=${queryEmbedding.length}; expected One Gateway Gemini 3072-d). ` +
-          `Re-run ingestMarkets to re-index — search will miss those markets until then.`
+          `(query=${queryEmbedding.length}). Keyword fallback will cover those markets; ` +
+          `healEmbeddings cron will re-index them gradually.`
       );
     }
-    
-    console.log(`[retrieveCandidates] Computed similarity for ${candidates.length} candidates`);
 
-    // Sort by similarity and get top K=100 (more candidates for flexible matching)
+    // Keyword fallback for markets without a usable embedding (missing or dim-mismatch).
+    // Scale keyword scores down so strong vector matches still rank first.
+    const KEYWORD_WEIGHT = 0.55;
+    const KEYWORD_MIN = 0.25;
+    const allMarkets: Array<{
+      polymarketMarketId: string;
+      title: string;
+      description: string;
+    }> = await ctx.runQuery(internalApi.queries.getAllMarkets);
+
+    let keywordAdded = 0;
+    for (const market of allMarkets) {
+      if (covered.has(market.polymarketMarketId)) continue;
+      const score = keywordScore(
+        retrievalText,
+        market.title || "",
+        market.description || ""
+      );
+      if (score < KEYWORD_MIN) continue;
+      candidates.push({
+        polymarketMarketId: market.polymarketMarketId,
+        similarity: score * KEYWORD_WEIGHT,
+        matchSource: "keyword",
+      });
+      keywordAdded++;
+    }
+
+    console.log(
+      `[retrieveCandidates] Vector candidates=${covered.size}, keyword fallback added=${keywordAdded}`
+    );
+
+    if (candidates.length === 0) {
+      console.warn(`[retrieveCandidates] No candidates from embeddings or keywords.`);
+      return [];
+    }
+
+    // Sort by similarity and get top K=100
     candidates.sort((a, b) => b.similarity - a.similarity);
     const topK = candidates.slice(0, 100);
-    
-    console.log(`[retrieveCandidates] Top similarity scores:`, topK.slice(0, 5).map(c => ({ id: c.polymarketMarketId, sim: c.similarity.toFixed(4) })));
 
-    // Fetch market details for top candidates
+    console.log(
+      `[retrieveCandidates] Top scores:`,
+      topK.slice(0, 5).map((c) => ({
+        id: c.polymarketMarketId,
+        sim: c.similarity.toFixed(4),
+        src: c.matchSource,
+      }))
+    );
+
     const results: MarketCandidate[] = [];
     for (const candidate of topK) {
       const market: any = await ctx.runQuery(internalApi.queries.getMarket, {
@@ -130,12 +190,15 @@ export const retrieveCandidates = action({
           volume: market.volume,
           liquidity: market.liquidity,
           similarity: candidate.similarity,
+          matchSource: candidate.matchSource,
         });
       } else {
-        console.warn(`[retrieveCandidates] Market ${candidate.polymarketMarketId} has embedding but no market data`);
+        console.warn(
+          `[retrieveCandidates] Market ${candidate.polymarketMarketId} scored but has no market row`
+        );
       }
     }
-    
+
     console.log(`[retrieveCandidates] Returning ${results.length} candidate markets`);
     return results;
   },
