@@ -5,8 +5,13 @@
  *  - incrementalIngest: crawl Polymarket Gamma in small offset pages (metadata only)
  *  - healEmbeddings: re-embed missing/mismatched markets in tiny batches via One Gateway
  *
- * Rate limits (gateway, approx): ~10 embed API calls / min / IP, ~500 / day global.
- * We batch texts into one call (input: string[]) and stay under 8/min and 450/day.
+ * Rate limits (gateway, approx): ~10 embed API calls / min / IP, ~500 / day global
+ * shared with other apps — keep this app's budget modest and configurable.
+ * We batch texts into one call (input: string[]).
+ *
+ * Env:
+ *   HEAL_DAILY_CALL_BUDGET   default 150  (API calls/day for this app)
+ *   HEAL_MINUTE_CALL_BUDGET  default 4    (API calls/minute for this app)
  */
 
 import { action } from "../_generated/server";
@@ -26,12 +31,43 @@ const JOB_REEMBED = "reembed";
 
 /** Texts per embeddings HTTP call (gateway accepts string[]). */
 const EMBED_BATCH_SIZE = 8;
-/** Leave headroom under ~10/min. */
-const MAX_CALLS_PER_MINUTE = 8;
-/** Leave headroom under ~500/day. */
-const MAX_CALLS_PER_DAY = 450;
 /** Markets scanned per heal tick while collecting a batch. */
 const HEAL_SCAN_PAGE = 40;
+
+const DEFAULT_HEAL_MINUTE_CALL_BUDGET = 4;
+const DEFAULT_HEAL_DAILY_CALL_BUDGET = 150;
+
+function parsePositiveInt(
+  raw: string | undefined,
+  fallback: number
+): number {
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+/** Per-minute embed API call budget for this app (default 4). */
+export function getHealMinuteCallBudget(
+  env: Record<string, string | undefined> = process.env
+): number {
+  return parsePositiveInt(
+    env.HEAL_MINUTE_CALL_BUDGET,
+    DEFAULT_HEAL_MINUTE_CALL_BUDGET
+  );
+}
+
+/**
+ * Daily embed API call budget for this app (default 150).
+ * Gateway ~500/day is global/shared — do not set this near 500.
+ */
+export function getHealDailyCallBudget(
+  env: Record<string, string | undefined> = process.env
+): number {
+  return parsePositiveInt(
+    env.HEAL_DAILY_CALL_BUDGET,
+    DEFAULT_HEAL_DAILY_CALL_BUDGET
+  );
+}
 /** Gamma page size for incremental crawl. */
 const INGEST_PAGE_SIZE = 50;
 /** Extra "recently updated" page each ingest tick. */
@@ -345,12 +381,14 @@ export const healEmbeddings = action({
     }
 
     const rates = refreshRateWindows(job, now);
-    if (rates.embedsThisMinute >= MAX_CALLS_PER_MINUTE) {
+    const maxPerMinute = getHealMinuteCallBudget();
+    const maxPerDay = getHealDailyCallBudget();
+    if (rates.embedsThisMinute >= maxPerMinute) {
       const result = {
         skipped: true,
         reason: "per_minute_limit",
         used: rates.embedsThisMinute,
-        limit: MAX_CALLS_PER_MINUTE,
+        limit: maxPerMinute,
       };
       await ctx.runMutation(internalApi.mutations.upsertIngestJob, {
         job: JOB_REEMBED,
@@ -359,12 +397,12 @@ export const healEmbeddings = action({
       });
       return { ok: true, ...result };
     }
-    if (rates.embedsToday >= MAX_CALLS_PER_DAY) {
+    if (rates.embedsToday >= maxPerDay) {
       const result = {
         skipped: true,
         reason: "per_day_limit",
         used: rates.embedsToday,
-        limit: MAX_CALLS_PER_DAY,
+        limit: maxPerDay,
       };
       await ctx.runMutation(internalApi.mutations.upsertIngestJob, {
         job: JOB_REEMBED,

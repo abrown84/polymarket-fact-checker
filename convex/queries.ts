@@ -393,6 +393,23 @@ export const getIngestStatus = query({
       .first();
 
     const now = Date.now();
+    const minuteLimitRaw = process.env.HEAL_MINUTE_CALL_BUDGET;
+    const dayLimitRaw = process.env.HEAL_DAILY_CALL_BUDGET;
+    const minuteLimitParsed = minuteLimitRaw
+      ? Number.parseInt(minuteLimitRaw, 10)
+      : NaN;
+    const dayLimitParsed = dayLimitRaw
+      ? Number.parseInt(dayLimitRaw, 10)
+      : NaN;
+    const minuteLimit =
+      Number.isFinite(minuteLimitParsed) && minuteLimitParsed > 0
+        ? minuteLimitParsed
+        : 4;
+    const dayLimit =
+      Number.isFinite(dayLimitParsed) && dayLimitParsed > 0
+        ? dayLimitParsed
+        : 150;
+
     const minuteBudget = reembedJob
       ? {
           used:
@@ -400,9 +417,9 @@ export const getIngestStatus = query({
             now - reembedJob.embedsMinuteStartedAt < 60_000
               ? reembedJob.embedsThisMinute ?? 0
               : 0,
-          limit: 8,
+          limit: minuteLimit,
         }
-      : { used: 0, limit: 8 };
+      : { used: 0, limit: minuteLimit };
     const dayBudget = reembedJob
       ? {
           used:
@@ -410,9 +427,9 @@ export const getIngestStatus = query({
             now - reembedJob.embedsDayStartedAt < 24 * 60 * 60 * 1000
               ? reembedJob.embedsToday ?? 0
               : 0,
-          limit: 450,
+          limit: dayLimit,
         }
-      : { used: 0, limit: 450 };
+      : { used: 0, limit: dayLimit };
 
     return {
       embedModel,

@@ -91,7 +91,7 @@ One Gateway Gemini embeddings are **3072** dimensions. Scheduled jobs handle eve
 | Cron | Interval | What it does |
 |---|---|---|
 | `incremental-market-ingest` | 15 min | Fetches new/updated Polymarket markets (offset crawl + recent `updatedAt` page) |
-| `heal-embeddings` | 1 min | Batch-embeds missing/mismatched vectors via One Gateway (~8 texts/call, ≤8 calls/min, ≤450/day) |
+| `heal-embeddings` | 1 min | Batch-embeds missing/mismatched vectors via One Gateway (~8 texts/call; default ≤4 calls/min, ≤150/day — shared gateway) |
 
 Search uses **keyword fallback** for markets not yet re-embedded, so retrieval does not silently drop them. Status: `getIngestStatus` (UI Market Ingestion panel).
 
@@ -184,7 +184,7 @@ npx convex run actions/testConnections:testConnections
 
 1. Brute-force similarity over all embeddings (consider ANN for >20k markets).
 2. Binary markets optimized; multi-outcome needs more work.
-3. Embedding heal is rate-limited (~450 gateway embed calls/day); large backlogs drain gradually with keyword fallback in the meantime.
+3. Embedding heal is rate-limited (default **150** gateway embed calls/day via `HEAL_DAILY_CALL_BUDGET`, **4**/min via `HEAL_MINUTE_CALL_BUDGET`) so other apps sharing the gateway’s ~500/day global cap are not starved; large backlogs drain gradually with keyword fallback.
 4. Self-hosted gateways must be **public HTTPS** — local `127.0.0.1` only works for local Convex/dev.
 
 ## License

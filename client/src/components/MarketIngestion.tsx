@@ -47,8 +47,8 @@ export default function MarketIngestion() {
             Self-healing ingestion active
           </div>
           <div className="text-xs text-[#888] mt-1">
-            Markets crawl every 15 minutes; embeddings heal ~8/min through One
-            Gateway (no manual re-index)
+            Markets crawl every 15 minutes; embeddings heal in small batches
+            through One Gateway (default 4 calls/min, 150/day — shared gateway)
           </div>
         </div>
       </div>

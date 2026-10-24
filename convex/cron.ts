@@ -26,7 +26,9 @@ crons.interval(
 
 /**
  * Re-embed missing / mismatched markets in tiny batches through One Gateway.
- * ~1 batch API call per tick (up to 8 texts), under ~10/min and ~500/day caps.
+ * ~1 batch API call per tick (up to 8 texts). Budgets default to 4/min and
+ * 150/day (HEAL_MINUTE_CALL_BUDGET / HEAL_DAILY_CALL_BUDGET) so we don't
+ * starve other apps sharing the gateway's global ~500/day cap.
  */
 crons.interval(
   "heal-embeddings",
