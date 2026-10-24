@@ -64,6 +64,7 @@ export const retrieveCandidates = action({
     // Embed the retrieval text
     const queryEmbedding: number[] = await ctx.runAction(internalApi.actions.aiEmbed.embedText, {
       text: retrievalText,
+      role: "query",
     });
 
     // Get all embeddings
@@ -77,11 +78,17 @@ export const retrieveCandidates = action({
       return [];
     }
 
-    // Compute similarity scores
+    // Compute similarity scores (skip vectors with mismatched dimensions,
+    // e.g. leftover OpenAI 1536-d embeddings after switching to gateway Gemini 3072-d)
     const candidates: Array<{ polymarketMarketId: string; similarity: number }> = [];
+    let skippedDimMismatch = 0;
     for (const emb of allEmbeddings) {
       if (!emb.vector || !Array.isArray(emb.vector) || emb.vector.length === 0) {
         console.warn(`[retrieveCandidates] Invalid embedding for market ${emb.polymarketMarketId}`);
+        continue;
+      }
+      if (emb.vector.length !== queryEmbedding.length) {
+        skippedDimMismatch++;
         continue;
       }
       const similarity = cosineSimilarity(queryEmbedding, emb.vector);
@@ -89,6 +96,13 @@ export const retrieveCandidates = action({
         polymarketMarketId: emb.polymarketMarketId,
         similarity,
       });
+    }
+    if (skippedDimMismatch > 0) {
+      console.warn(
+        `[retrieveCandidates] Skipped ${skippedDimMismatch} embeddings with dimension mismatch ` +
+          `(query=${queryEmbedding.length}; expected One Gateway Gemini 3072-d). ` +
+          `Re-run ingestMarkets to re-index — search will miss those markets until then.`
+      );
     }
     
     console.log(`[retrieveCandidates] Computed similarity for ${candidates.length} candidates`);

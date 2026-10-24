@@ -7,10 +7,14 @@
 
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import {
+  gatewayChatText,
+  gatewayEmbed,
+  getChatModel,
+  getEmbedModel,
+  getOneGatewayConfig,
+} from "./oneGateway";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini";
-const OPENAI_EMBED_MODEL = process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small";
 const POLYMARKET_GAMMA_BASE = process.env.POLYMARKET_GAMMA_BASE || "https://gamma-api.polymarket.com";
 const POLYMARKET_CLOB_BASE = process.env.POLYMARKET_CLOB_BASE || "https://clob.polymarket.com";
 const TWITTER_BEARER_TOKEN = process.env.TWITTER_BEARER_TOKEN;
@@ -162,58 +166,30 @@ async function testClobAPI(): Promise<TestResult> {
 }
 
 /**
- * Test OpenRouter Embeddings API
+ * Test One Gateway Embeddings API (Gemini embeddings via gateway)
  */
-async function testOpenRouterEmbeddings(): Promise<TestResult> {
+async function testOneGatewayEmbeddings(): Promise<TestResult> {
   const startTime = Date.now();
-  if (!OPENAI_API_KEY) {
-    return {
-      name: "OpenRouter Embeddings API",
-      success: false,
-      error: "OPENAI_API_KEY environment variable not set",
-      duration: Date.now() - startTime,
-    };
-  }
+  const gw = getOneGatewayConfig();
 
   try {
-    const response = await fetch("https://api.openai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_EMBED_MODEL,
-        input: "test connection",
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return {
-        name: "OpenRouter Embeddings API",
-        success: false,
-        error: `HTTP ${response.status}: ${errorText.substring(0, 200)}`,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    const data = await response.json();
-    const embedding = data.data?.[0]?.embedding;
+    const embedding = await gatewayEmbed("test connection", { role: "query" });
     return {
-      name: "OpenRouter Embeddings API",
+      name: "One Gateway Embeddings API",
       success: true,
       details: {
-        model: OPENAI_EMBED_MODEL,
+        baseUrl: gw.baseUrl,
+        model: getEmbedModel(),
         embeddingLength: Array.isArray(embedding) ? embedding.length : 0,
+        expectedDimensions: gw.embedDimensions,
         hasEmbedding: !!embedding,
+        auth: gw.token ? "bearer" : "none",
       },
       duration: Date.now() - startTime,
     };
   } catch (error: any) {
     return {
-      name: "OpenRouter Embeddings API",
+      name: "One Gateway Embeddings API",
       success: false,
       error: error.message || String(error),
       duration: Date.now() - startTime,
@@ -222,64 +198,35 @@ async function testOpenRouterEmbeddings(): Promise<TestResult> {
 }
 
 /**
- * Test OpenRouter Chat Completions API
+ * Test One Gateway Chat Completions API
  */
-async function testOpenRouterChat(): Promise<TestResult> {
+async function testOneGatewayChat(): Promise<TestResult> {
   const startTime = Date.now();
-  if (!OPENAI_API_KEY) {
-    return {
-      name: "OpenRouter Chat API",
-      success: false,
-      error: "OPENAI_API_KEY environment variable not set",
-      duration: Date.now() - startTime,
-    };
-  }
+  const gw = getOneGatewayConfig();
 
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${OPENAI_API_KEY}`,
-        "HTTP-Referer": "https://polymarket-fact-checker.vercel.app",
-        "X-Title": "Polymarket Fact Checker",
-      },
-      body: JSON.stringify({
-        model: OPENAI_CHAT_MODEL,
-        messages: [
-          { role: "user", content: "Say 'test successful' and nothing else." },
-        ],
-        max_tokens: 10,
-        temperature: 0,
-      }),
-      signal: AbortSignal.timeout(30000),
+    // gemini-3.8-flash may spend tokens on thinking; keep maxTokens high enough
+    // that the visible reply is not truncated to empty.
+    const content = await gatewayChatText({
+      user: "Say 'test successful' and nothing else.",
+      temperature: 0,
+      maxTokens: 64,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return {
-        name: "OpenRouter Chat API",
-        success: false,
-        error: `HTTP ${response.status}: ${errorText.substring(0, 200)}`,
-        duration: Date.now() - startTime,
-      };
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
     return {
-      name: "OpenRouter Chat API",
+      name: "One Gateway Chat API",
       success: true,
       details: {
-        model: OPENAI_CHAT_MODEL,
+        baseUrl: gw.baseUrl,
+        model: getChatModel(),
         response: content,
         hasResponse: !!content,
+        auth: gw.token ? "bearer" : "none",
       },
       duration: Date.now() - startTime,
     };
   } catch (error: any) {
     return {
-      name: "OpenRouter Chat API",
+      name: "One Gateway Chat API",
       success: false,
       error: error.message || String(error),
       duration: Date.now() - startTime,
@@ -693,15 +640,15 @@ export const testConnections = action({
     results.push(clobResult);
     console.log(`${clobResult.success ? "✓" : "✗"} ${clobResult.name}: ${clobResult.success ? "SUCCESS" : clobResult.error}`);
 
-    // Test 3: OpenRouter Embeddings
-    console.log("\nTesting OpenRouter Embeddings API...");
-    const embedResult = await testOpenRouterEmbeddings();
+    // Test 3: One Gateway Embeddings
+    console.log("\nTesting One Gateway Embeddings API...");
+    const embedResult = await testOneGatewayEmbeddings();
     results.push(embedResult);
     console.log(`${embedResult.success ? "✓" : "✗"} ${embedResult.name}: ${embedResult.success ? "SUCCESS" : embedResult.error}`);
 
-    // Test 4: OpenRouter Chat
-    console.log("\nTesting OpenRouter Chat API...");
-    const chatResult = await testOpenRouterChat();
+    // Test 4: One Gateway Chat
+    console.log("\nTesting One Gateway Chat API...");
+    const chatResult = await testOneGatewayChat();
     results.push(chatResult);
     console.log(`${chatResult.success ? "✓" : "✗"} ${chatResult.name}: ${chatResult.success ? "SUCCESS" : chatResult.error}`);
 

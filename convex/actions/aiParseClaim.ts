@@ -4,35 +4,24 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { z } from "zod";
 import { ParsedClaimSchema } from "../utils";
-
-import { getChatConfig } from "./providerAuth";
+import { gatewayChatJson } from "./oneGateway";
 
 /**
- * Parse a question into a structured claim using OpenRouter
- * Falls back to simple heuristics if OpenRouter fails
+ * Parse a question into a structured claim using One Gateway
+ * Falls back to simple heuristics if the gateway call fails
  */
 export const aiParseClaim = action({
   args: { question: v.string() },
-  handler: async (ctx, args) => {
+  handler: async (_ctx, args) => {
     const question = args.question.trim();
     if (!question) {
       throw new Error("Question cannot be empty");
     }
 
     try {
-      const chat = await getChatConfig(ctx);
-      const response = await fetch(chat.apiUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${chat.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: chat.model,
-          messages: [
-            {
-              role: "system",
-              content: `You are a claim parser that converts questions into structured, checkable claims for prediction markets.
+      const parsed = await gatewayChatJson({
+        temperature: 0.3,
+        system: `You are a claim parser that converts questions into structured, checkable claims for prediction markets.
 
 Output ONLY valid JSON matching this schema:
 {
@@ -52,33 +41,13 @@ Rules:
 - If ambiguous, still produce best-effort claim but list ambiguities
 - must_include should contain essential terms
 - must_exclude should contain clearly wrong terms`,
-            },
-            {
-              role: "user",
-              content: question,
-            },
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.3,
-        }),
-        signal: AbortSignal.timeout(30000),
+        user: question,
       });
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} ${error}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices[0].message.content;
-      const parsed = JSON.parse(content);
-
-      // Validate with zod
       const validated = ParsedClaimSchema.parse(parsed);
       return validated;
     } catch (error) {
-      console.error("OpenRouter parseClaim failed, using fallback:", error);
-      // Fallback parser
+      console.error("One Gateway parseClaim failed, using fallback:", error);
       return fallbackParseClaim(question);
     }
   },

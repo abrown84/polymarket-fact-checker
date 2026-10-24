@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { clamp01, ParsedClaim, parseDateFromQuery } from "../utils";
 
-import { getChatConfig } from "./providerAuth";
+import { gatewayChatJson } from "./oneGateway";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -489,8 +489,7 @@ export const factCheck = action({
 
     // Always generate an answer, but adjust the approach based on match quality
     const hasGoodMatch = matchScore >= 0.35 && confidence >= 0.25;
-    const chat = await getChatConfig(ctx);
-    
+
     if (!hasGoodMatch) {
       // Even with poor matches, provide an answer using available data
       try {
@@ -503,20 +502,9 @@ export const factCheck = action({
             matchScore: (m.matchScore * 100).toFixed(0) + "%",
           }));
 
-        const summaryResponse = await fetch(
-          chat.apiUrl,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${chat.apiKey}`,
-            },
-            body: JSON.stringify({
-              model: chat.model,
-              messages: [
-                {
-                  role: "system",
-                  content: `You are an expert fact-checker that provides helpful answers even when markets don't perfectly match the question.
+        const summaryParsed = await gatewayChatJson({
+          temperature: 0.6,
+          system: `You are an expert fact-checker that provides helpful answers even when markets don't perfectly match the question.
 
 Your job is to:
 1. Answer the question to the best of your ability using available market data
@@ -536,10 +524,7 @@ Rules:
 - Be clear about limitations but don't just say "no match found"
 - Explain how related markets might be relevant to the question
 - Write in a helpful, conversational tone`,
-                },
-                {
-                  role: "user",
-                  content: `Question: ${args.question}
+          user: `Question: ${args.question}
 
 Parsed Claim: ${parsedClaim.claim}
 
@@ -568,41 +553,16 @@ ${instagramPosts.length > 0 ? `\nRelevant Instagram Posts:\n${instagramPosts.sli
 ${kalshiMarkets.length > 0 ? `\nRelevant Kalshi Markets:\n${kalshiMarkets.slice(0, 5).map((market, i) => `${i + 1}. ${market.title} - ${market.lastPrice !== null ? (market.lastPrice * 100).toFixed(1) + "%" : "N/A"} probability`).join("\n\n")}` : ""}
 
 Provide a helpful answer to the question using this market data, news context, social media sentiment from multiple platforms (Twitter, Reddit, TikTok, Instagram), and alternative prediction markets. Explain what these sources might indicate about the question, even though they're not perfect matches. Incorporate relevant information from all sources when available. Be transparent about the limitations but still provide useful insights.`,
-                },
-              ],
-              response_format: { type: "json_object" },
-              temperature: 0.6,
-            }),
-            signal: AbortSignal.timeout(45000),
-          }
-        );
+        }) as { summary?: string; interpretation?: string };
 
-        if (summaryResponse.ok) {
-          const summaryData = await summaryResponse.json();
-          const summaryContent = summaryData.choices[0].message.content;
-          const summaryParsed = JSON.parse(summaryContent);
-          
-          const interpretation = summaryParsed.interpretation || "";
-          answerSummary = summaryParsed.summary || "Unable to generate answer from available market data.";
-          
-          if (interpretation && interpretation !== answerSummary) {
-            answerSummary = `${answerSummary}\n\n${interpretation}`;
-          }
-        } else {
-          // Fallback: Provide answer using available data
-          const probText = probYes !== null 
-            ? `While there isn't a perfect market match for this specific question, the closest related market (${bestMarket.title}) indicates a ${(probYes * 100).toFixed(1)}% probability.`
-            : `While there isn't a perfect market match for this specific question, we found a related market: ${bestMarket.title}.`;
-          
-          const matchNote = matchScore < 0.5 
-            ? " Note: This market is only loosely related to your question, so the probability should be interpreted with significant caution."
-            : " Note: This market is somewhat related but not a perfect match for your specific question.";
-          
-          answerSummary = `${probText}${matchNote}`;
+        const interpretation = summaryParsed.interpretation || "";
+        answerSummary = summaryParsed.summary || "Unable to generate answer from available market data.";
+
+        if (interpretation && interpretation !== answerSummary) {
+          answerSummary = `${answerSummary}\n\n${interpretation}`;
         }
       } catch (error) {
         console.error("Error generating answer for weak match:", error);
-        // Fallback answer
         const probText = probYes !== null 
           ? `While there isn't a perfect market match, the closest related market suggests a ${(probYes * 100).toFixed(1)}% probability. However, this market may not directly address your specific question.`
           : `We found a related market (${bestMarket.title}), but it doesn't directly address your question.`;
@@ -612,7 +572,6 @@ Provide a helpful answer to the question using this market data, news context, s
     } else {
       // Good match - provide comprehensive answer
       try {
-        // Prepare market data for analysis
         const topMarketsForAnalysis = marketsWithEvidence
           .filter(m => m.evidence.priceYes !== null && m.matchScore >= 0.4)
           .slice(0, 5)
@@ -625,20 +584,9 @@ Provide a helpful answer to the question using this market data, news context, s
             reasons: m.reasons || [],
           }));
 
-        const summaryResponse = await fetch(
-          chat.apiUrl,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${chat.apiKey}`,
-            },
-            body: JSON.stringify({
-              model: chat.model,
-              messages: [
-                {
-                  role: "system",
-                  content: `You are an expert fact-checker that answers questions using prediction market data from Polymarket and relevant news articles.
+        const summaryParsed = await gatewayChatJson({
+          temperature: 0.5,
+          system: `You are an expert fact-checker that answers questions using prediction market data from Polymarket and relevant news articles.
 
 Your job is to:
 1. Answer the user's question directly based on the market data and news context
@@ -662,10 +610,7 @@ Rules:
 - Mention volume/liquidity to indicate market confidence
 - Be clear about limitations (e.g., if match is not perfect, if data is limited)
 - Write in a clear, conversational tone that directly answers the question`,
-                },
-                {
-                  role: "user",
-                  content: `Question: ${args.question}
+          user: `Question: ${args.question}
 
 Parsed Claim: ${parsedClaim.claim}
 
@@ -697,47 +642,16 @@ ${kalshiMarkets.length > 0 ? `\nRelevant Kalshi Markets:\n${kalshiMarkets.slice(
 ${googleTrends.length > 0 ? `\nGoogle Trends Data:\n${googleTrends.slice(0, 5).map((trend, i) => `${i + 1}. "${trend.keyword}" - Search Interest: ${trend.searchInterest}/100${trend.relatedQueries.length > 0 ? `, Related: ${trend.relatedQueries.slice(0, 3).join(", ")}` : ""}`).join("\n\n")}` : ""}
 
 Based on this market data, news context, social media sentiment from multiple platforms (Twitter, Reddit, TikTok, Instagram), Google Trends search interest data, and alternative prediction markets, provide a direct answer to the question and explain what the markets indicate. Incorporate relevant information from all sources when it adds context.`,
-                },
-              ],
-              response_format: { type: "json_object" },
-              temperature: 0.5, // Slightly higher for more natural answers
-            }),
-            signal: AbortSignal.timeout(45000),
-          }
-        );
+        }) as { summary?: string; interpretation?: string };
 
-        if (summaryResponse.ok) {
-          const summaryData = await summaryResponse.json();
-          const summaryContent = summaryData.choices[0].message.content;
-          const summaryParsed = JSON.parse(summaryContent);
-          
-          // Combine summary and interpretation into a comprehensive answer
-          const interpretation = summaryParsed.interpretation || "";
-          answerSummary = summaryParsed.summary || "Evidence available but answer generation failed.";
-          
-          // If we have an interpretation, append it for more context
-          if (interpretation && interpretation !== answerSummary) {
-            answerSummary = `${answerSummary}\n\n${interpretation}`;
-          }
-        } else {
-          // Fallback: Generate a basic answer from the data
-          const probText = probYes !== null 
-            ? `Polymarket markets indicate a ${(probYes * 100).toFixed(1)}% probability that this claim is true.`
-            : "Market probability data is not available.";
-          
-          const volumeText = bestMarket.evidence.volume 
-            ? ` This market has $${bestMarket.evidence.volume.toLocaleString()} in trading volume, indicating ${bestMarket.evidence.volume > 1000000 ? "high" : bestMarket.evidence.volume > 100000 ? "moderate" : "limited"} market confidence.`
-            : "";
-          
-          const matchText = matchScore < 0.7 
-            ? " Note: The available market is not a perfect match for this specific claim, so the probability should be interpreted with caution."
-            : "";
-          
-          answerSummary = `${probText}${volumeText}${matchText}`;
+        const interpretation = summaryParsed.interpretation || "";
+        answerSummary = summaryParsed.summary || "Evidence available but answer generation failed.";
+
+        if (interpretation && interpretation !== answerSummary) {
+          answerSummary = `${answerSummary}\n\n${interpretation}`;
         }
       } catch (error) {
         console.error("Error generating answer:", error);
-        // Fallback answer
         const probText = probYes !== null 
           ? `Based on Polymarket data, there is a ${(probYes * 100).toFixed(1)}% probability that this claim is true.`
           : "Market data is available but probability information could not be retrieved.";

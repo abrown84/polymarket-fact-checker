@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { ParsedClaim } from "../utils";
-import { getChatConfig } from "./providerAuth";
+import { gatewayChatJson } from "./oneGateway";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -241,8 +241,6 @@ export const deepResearch = action({
     analysisDepth: v.optional(v.union(v.literal("standard"), v.literal("deep"))),
   },
   handler: async (ctx, args): Promise<DeepResearchResult> => {
-    const chat = await getChatConfig(ctx);
-
     const analysisDepth = args.analysisDepth || "standard";
 
     // Get market data
@@ -288,24 +286,10 @@ export const deepResearch = action({
     // Generate insights using AI
     let insights: string[] = [];
     try {
-      const insightsResponse = await fetch(
-        chat.apiUrl,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${chat.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: chat.model,
-            messages: [
-              {
-                role: "system",
-                content: `You are a market intelligence analyst. Generate 3-5 key insights about this prediction market based on the provided data. Focus on actionable insights, trends, and important factors.`,
-              },
-              {
-                role: "user",
-                content: `Market: ${market.title}
+      const insightsParsed = await gatewayChatJson({
+        temperature: 0.7,
+        system: `You are a market intelligence analyst. Generate 3-5 key insights about this prediction market based on the provided data. Focus on actionable insights, trends, and important factors. Output ONLY valid JSON: { "insights": string[] }`,
+        user: `Market: ${market.title}
 Description: ${market.description || "N/A"}
 Probability: ${bestMarket?.evidence.priceYes ? (bestMarket.evidence.priceYes * 100).toFixed(1) + "%" : "N/A"}
 Volume: ${bestMarket?.evidence.volume ? `$${bestMarket.evidence.volume.toLocaleString()}` : "N/A"}
@@ -316,22 +300,9 @@ News Articles: ${newsArticles.length}
 Social Media Posts: ${tweets.length + redditPosts.length}
 Google Trends: ${googleTrends.length}
 
-Generate 3-5 key insights as a JSON array of strings.`,
-              },
-            ],
-            response_format: { type: "json_object" },
-            temperature: 0.7,
-          }),
-          signal: AbortSignal.timeout(30000),
-        }
-      );
-
-      if (insightsResponse.ok) {
-        const insightsData = await insightsResponse.json();
-        const insightsContent = insightsData.choices[0].message.content;
-        const insightsParsed = JSON.parse(insightsContent);
-        insights = insightsParsed.insights || insightsParsed.items || [];
-      }
+Generate 3-5 key insights as a JSON object with an "insights" array of strings.`,
+      }) as { insights?: string[]; items?: string[] };
+      insights = insightsParsed.insights || insightsParsed.items || [];
     } catch (error) {
       console.error("Error generating insights:", error);
       // Fallback insights

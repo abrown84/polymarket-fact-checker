@@ -1,81 +1,50 @@
-# 🚀 Quick Setup Guide - Get All Credentials
+# Quick Setup Guide
 
-## ⚡ Fastest Path: Just Get OpenAI (5 minutes)
+## Fastest path
 
-**The app works with just OpenAI!** All other APIs are optional.
+AI (chat + embeddings) goes through **One Gateway**. Defaults work against the public Brown Industries gateway; set a token only if your host requires auth.
 
-### Step 1: Get OpenAI Key
-1. Open: https://platform.openai.com/api-keys
-2. Click "Create new secret key"
-3. Copy the key (starts with `sk-`)
+### 1. One Gateway (chat + embeddings)
 
-### Step 2: Add to Convex
-1. Open: https://dashboard.convex.dev
-2. Select your project
-3. Go to: **Settings** → **Environment Variables**
-4. Click **"Add Variable"**
-5. Enter:
-   - Name: `OPENAI_API_KEY`
-   - Value: (paste your key)
-6. Click **"Save"**
+1. Optional: run your own [One Gateway](https://github.com/abrown84/one-gateway) / OpenClaw host over HTTPS
+2. In Convex → Settings → Environment Variables:
+   - `ONE_GATEWAY_URL=https://brwnindustries.com/labs/one-gateway` (default if unset)
+   - `ONE_GATEWAY_MODEL=gemini-3.8-flash` (optional; this is the default)
+   - `ONE_GATEWAY_EMBED_MODEL=gemini-embedding-2` (optional; 3072-d)
+   - `ONE_GATEWAY_TOKEN` — **optional**; only set if the gateway requires a bearer token
 
-### Step 3: Test
+### 2. Client (Vercel)
+
+Set `VITE_CONVEX_URL` to your Convex deployment URL.
+
+### 3. Test
+
 ```bash
 npx convex run actions/testConnections:testConnections
 ```
 
-**Done!** Your app now works with:
-- ✅ Polymarket markets
-- ✅ Reddit posts  
-- ✅ News articles
-- ✅ AI fact-checking
+### Re-index embeddings (required if vectors are not 3072-d)
+
+Gateway Gemini embeddings are **3072** dimensions. Leftover OpenAI `text-embedding-3-small` vectors are **1536-d** and are skipped at search time until re-ingested:
+
+```bash
+npx convex run actions/ingestMarkets:ingestMarkets '{"cursor":null}'
+```
 
 ---
 
-## 📋 Full Credential Checklist
+## Credential checklist
 
-### 🔴 Required (Must Have)
-- [ ] `OPENAI_API_KEY` - https://platform.openai.com/api-keys
+### Required
+- [ ] `VITE_CONVEX_URL` — Vercel / local Vite
 
-### 🟡 Optional (Nice to Have)
-- [ ] `TWITTER_BEARER_TOKEN` - https://developer.twitter.com/en/portal/dashboard
-- [ ] `TIKTOK_API_KEY` + `TIKTOK_API_SECRET` - https://developers.tiktok.com/
-- [ ] `INSTAGRAM_ACCESS_TOKEN` + `INSTAGRAM_APP_ID` - https://developers.facebook.com/
-- [ ] `KALSHI_API_KEY` + `KALSHI_API_SECRET` - https://kalshi.com/
-- [ ] `NEWS_API_KEY` - https://newsapi.org/
+### Recommended (Convex)
+- [ ] `ONE_GATEWAY_URL` (defaults to `https://brwnindustries.com/labs/one-gateway`)
+- [ ] `ONE_GATEWAY_TOKEN` — only if your gateway requires auth
 
----
+### Optional
+- [ ] `ONE_GATEWAY_MODEL` (default `gemini-3.8-flash`)
+- [ ] `ONE_GATEWAY_EMBED_MODEL` (default `gemini-embedding-2`)
+- [ ] `TWITTER_BEARER_TOKEN`, `NEWS_API_KEY`, TikTok / Instagram / Kalshi keys
 
-## 🔗 Quick Links (Click to Open)
-
-### Required:
-- [OpenAI API Keys](https://platform.openai.com/api-keys)
-- [Convex Dashboard](https://dashboard.convex.dev)
-
-### Optional:
-- [Twitter Developer Portal](https://developer.twitter.com/en/portal/dashboard)
-- [TikTok Developers](https://developers.tiktok.com/)
-- [Facebook Developers](https://developers.facebook.com/)
-- [NewsAPI](https://newsapi.org/)
-- [Kalshi](https://kalshi.com/)
-
----
-
-## 💡 Pro Tips
-
-1. **Start with OpenAI only** - Get it working first!
-2. **Add others one at a time** - Test each as you add it
-3. **Use Convex dashboard** - Easiest way to manage
-4. **Check logs** - See which APIs are working
-
----
-
-## 🆘 Need Help?
-
-- **Can't find Convex project?** Run `npx convex dev` to see your project
-- **API key not working?** Check you copied the full key
-- **401 Error?** Make sure billing is set up on OpenAI
-- **Still stuck?** Check `docs/status/SETUP_CREDENTIALS.md` for detailed instructions
-
-
-
+See `.env.example` and `README.md` for details.

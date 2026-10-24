@@ -15,11 +15,16 @@ export function clamp01(value: number): number {
 }
 
 /**
- * Compute cosine similarity between two vectors
+ * Compute cosine similarity between two vectors.
+ * Returns 0 when dimensions differ (e.g. leftover OpenAI 1536-d vectors vs
+ * One Gateway Gemini gemini-embedding-2 3072-d). Re-run market ingestion to re-index.
  */
 export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) {
-    throw new Error("Vectors must have the same length");
+    console.warn(
+      `[cosineSimilarity] Dimension mismatch (${a.length} vs ${b.length}); skipping. Re-index embeddings after switching models.`
+    );
+    return 0;
   }
   let dotProduct = 0;
   let normA = 0;

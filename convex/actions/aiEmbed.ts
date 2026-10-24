@@ -4,8 +4,12 @@ import { action, ActionCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { hashString } from "../utils";
-
-import { getEmbedConfig } from "./providerAuth";
+import {
+  gatewayEmbed,
+  getEmbedModel,
+  getEmbedDimensions,
+  type EmbedRole,
+} from "./oneGateway";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -59,41 +63,31 @@ async function setCache(
 }
 
 /**
- * Embed text using OpenAI embeddings API
- * Caches embeddings by hash(text + model) to reduce cost
+ * Embed text via One Gateway (`POST /v1/embeddings`, Gemini embeddings).
+ * Caches embeddings by hash(text + model + role + dims) to reduce cost.
  */
 export const embedText = action({
-  args: { text: v.string() },
+  args: {
+    text: v.string(),
+    role: v.optional(v.union(v.literal("query"), v.literal("document"))),
+    title: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
-    const embed = await getEmbedConfig(ctx);
-    const cacheKey = `embed:${hashString(args.text + embed.model)}`;
+    const model = getEmbedModel();
+    const role: EmbedRole = args.role ?? "query";
+    const dims = getEmbedDimensions();
+    const cacheKey = `embed:${hashString(`${args.text}|${model}|${role}|${args.title || ""}|${dims}`)}`;
     const cached = await getCache(ctx, cacheKey);
     if (cached) {
       return cached;
     }
 
-    const response = await fetch(embed.apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${embed.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: embed.model,
-        input: args.text,
-      }),
-      signal: AbortSignal.timeout(30000), // 30s timeout
+    const embedding = await gatewayEmbed(args.text, {
+      role,
+      title: args.title,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`OpenAI API error: ${response.status} ${error}`);
-    }
-
-    const data = await response.json();
-    const embedding = data.data[0].embedding;
-
-    // Cache forever (embeddings don't change for same text+model)
+    // Cache forever (embeddings don't change for same text+model+role)
     await setCache(ctx, cacheKey, embedding, 365 * 24 * 60 * 60 * 1000);
 
     return embedding;

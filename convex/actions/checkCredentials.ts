@@ -8,6 +8,7 @@
 
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { gatewayChatText } from "./oneGateway";
 
 interface CredentialStatus {
   name: string;
@@ -248,38 +249,16 @@ async function testKalshi(): Promise<{ success: boolean; error?: string; details
 }
 
 /**
- * Test OpenRouter API
+ * Test One Gateway chat API (token optional; uses default public URL)
  */
-async function testOpenRouter(): Promise<{ success: boolean; error?: string; details?: any }> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) {
-    return { success: false, error: "OPENAI_API_KEY not set" };
-  }
-
+async function testOneGateway(): Promise<{ success: boolean; error?: string; details?: any }> {
   try {
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: process.env.OPENAI_CHAT_MODEL || "gpt-5.1-codex-mini",
-        messages: [{ role: "user", content: "test" }],
-        max_tokens: 5,
-      }),
-      signal: AbortSignal.timeout(10000),
+    const content = await gatewayChatText({
+      user: "Reply with OK.",
+      temperature: 0,
+      maxTokens: 64,
     });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      return {
-        success: false,
-        error: `HTTP ${response.status}: ${errorText.substring(0, 100)}`,
-      };
-    }
-
-    return { success: true, details: { apiWorking: true } };
+    return { success: true, details: { apiWorking: true, responsePreview: content?.slice(0, 40) } };
   } catch (error: any) {
     return { success: false, error: error.message || String(error) };
   }
@@ -368,11 +347,17 @@ export const checkCredentials = action({
     // Check all credentials
     const credentials: CredentialStatus[] = [
       {
-        name: "OpenRouter API",
+        name: "One Gateway (chat + embeddings)",
         required: true,
-        configured: isEnvSet("OPENAI_API_KEY"),
-        keys: ["OPENAI_API_KEY"],
-        status: isEnvSet("OPENAI_API_KEY") ? "✅ Set" : "❌ Missing",
+        // Token optional; URL has a public default. Always "configured" for connectivity test.
+        configured: true,
+        keys: [
+          "ONE_GATEWAY_URL",
+          "ONE_GATEWAY_MODEL",
+          "ONE_GATEWAY_EMBED_MODEL",
+          "ONE_GATEWAY_TOKEN",
+        ],
+        status: "✅ Set",
       },
       {
         name: "Twitter/X",
@@ -432,8 +417,8 @@ export const checkCredentials = action({
       if (cred.configured || cred.required) {
         let testResult;
         switch (cred.name) {
-          case "OpenRouter API":
-            testResult = await testOpenRouter();
+          case "One Gateway (chat + embeddings)":
+            testResult = await testOneGateway();
             break;
           case "Twitter/X":
             testResult = await testTwitter();
