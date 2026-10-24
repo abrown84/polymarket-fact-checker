@@ -218,4 +218,31 @@ export default defineSchema({
     .index("by_keyword", ["keyword"])
     .index("by_query_hash", ["queryHash"])
     .index("by_stored_at", ["storedAt"]),
+
+  /**
+   * Durable job state for scheduled market ingest + embedding heal.
+   * One row per job name ("market_ingest" | "reembed").
+   */
+  ingestJobs: defineTable({
+    job: v.string(),
+    // Incremental Gamma crawl (offset-based; API returns arrays without cursors)
+    gammaOffset: v.optional(v.number()),
+    // Pagination cursor while scanning markets for re-embed
+    reembedCursor: v.optional(v.union(v.string(), v.null())),
+    // Gateway rate-limit budget (API calls, not individual texts)
+    embedsThisMinute: v.optional(v.number()),
+    embedsMinuteStartedAt: v.optional(v.number()),
+    embedsToday: v.optional(v.number()),
+    embedsDayStartedAt: v.optional(v.number()),
+    // Backoff after 429 / errors
+    backoffUntil: v.optional(v.number()),
+    consecutiveErrors: v.optional(v.number()),
+    // Status for UI / admin
+    lastRunAt: v.optional(v.number()),
+    lastSuccessAt: v.optional(v.number()),
+    lastError: v.optional(v.union(v.string(), v.null())),
+    lastErrorAt: v.optional(v.number()),
+    lastResult: v.optional(v.any()),
+    updatedAt: v.number(),
+  }).index("by_job", ["job"]),
 });

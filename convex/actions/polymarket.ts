@@ -76,10 +76,17 @@ export const fetchGammaMarkets = action({
     cursor: v.union(v.string(), v.null()),
     limit: v.optional(v.number()),
     bypassCache: v.optional(v.boolean()),
+    /** Preferred pagination — Gamma returns plain arrays; offset works reliably. */
+    offset: v.optional(v.number()),
+    order: v.optional(v.string()),
+    ascending: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     try {
-      const cacheKey = `gamma:markets:${args.cursor || "initial"}`;
+      const offset = args.offset ?? 0;
+      const order = args.order || "";
+      const ascending = args.ascending;
+      const cacheKey = `gamma:markets:${args.cursor || "initial"}:o${offset}:ord${order}:asc${ascending}`;
       const shouldBypassCache = args.bypassCache === true;
       
       console.log(`[fetchGammaMarkets] bypassCache parameter: ${args.bypassCache}, type: ${typeof args.bypassCache}, shouldBypass: ${shouldBypassCache}`);
@@ -100,9 +107,18 @@ export const fetchGammaMarkets = action({
       // Use the endpoint that filters for active markets at the API level
       // This is more efficient than fetching all markets and filtering client-side
       // Based on endpoint testing: /markets?closed=false returns only active markets
-      const url = `${POLYMARKET_GAMMA_BASE}/markets?limit=${limit}&closed=false&active=true${
-        args.cursor ? `&cursor=${args.cursor}` : ""
-      }`;
+      const params = new URLSearchParams({
+        limit: String(limit),
+        closed: "false",
+        active: "true",
+      });
+      if (offset > 0) params.set("offset", String(offset));
+      if (args.cursor) params.set("cursor", args.cursor);
+      if (order) params.set("order", order);
+      if (typeof ascending === "boolean") {
+        params.set("ascending", ascending ? "true" : "false");
+      }
+      const url = `${POLYMARKET_GAMMA_BASE}/markets?${params.toString()}`;
 
       console.log(`[fetchGammaMarkets] Fetching from ${url}`);
       
@@ -131,11 +147,18 @@ export const fetchGammaMarkets = action({
         console.log(`[fetchGammaMarkets] Response is direct array with ${data.length} markets`);
         responseData = {
           data: data,
-          cursor: null, // API doesn't seem to return cursor in this format
+          cursor: null, // API doesn't return cursors for this format
+          offset,
+          nextOffset: data.length >= limit ? offset + data.length : null,
         };
       } else if (data.data && Array.isArray(data.data)) {
         console.log(`[fetchGammaMarkets] Response has data.data array with ${data.data.length} markets`);
-        responseData = data;
+        responseData = {
+          ...data,
+          offset,
+          nextOffset:
+            data.data.length >= limit ? offset + data.data.length : null,
+        };
       } else {
         console.log(`[fetchGammaMarkets] Unexpected response format. Keys:`, Object.keys(data));
         // Try to find any array in the response
@@ -145,6 +168,9 @@ export const fetchGammaMarkets = action({
             responseData = {
               data: data[key],
               cursor: data.cursor || null,
+              offset,
+              nextOffset:
+                data[key].length >= limit ? offset + data[key].length : null,
             };
             break;
           }

@@ -1,10 +1,28 @@
 import { useQuery } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { motion } from "framer-motion";
-import { Database, CheckCircle2, Clock } from "lucide-react";
+import { Database, CheckCircle2, Clock, AlertTriangle } from "lucide-react";
+
+function formatTime(ts: number | null | undefined): string {
+  if (!ts) return "—";
+  try {
+    return new Date(ts).toLocaleString();
+  } catch {
+    return "—";
+  }
+}
 
 export default function MarketIngestion() {
+  const status = useQuery(api.queries.getIngestStatus);
   const stats = useQuery(api.queries.getDashboardStats);
+
+  const pending = status?.totals.pending ?? null;
+  const embeddedOk = status?.totals.embeddedOk ?? null;
+  const lastIngestError = status?.ingest?.lastError;
+  const lastHealError = status?.reembed?.lastError;
+  const inBackoff =
+    status?.reembed?.backoffUntil != null &&
+    status.reembed.backoffUntil > Date.now();
 
   return (
     <motion.div
@@ -25,51 +43,98 @@ export default function MarketIngestion() {
           <CheckCircle2 className="w-5 h-5 text-emerald-500" />
         </motion.div>
         <div className="flex-1">
-          <div className="text-sm font-medium text-white">Automatic Ingestion Active</div>
+          <div className="text-sm font-medium text-white">
+            Self-healing ingestion active
+          </div>
           <div className="text-xs text-[#888] mt-1">
-            Markets are automatically ingested every 2-6 hours
+            Markets crawl every 15 minutes; embeddings heal in small batches
+            through One Gateway (default 4 calls/min, 150/day — shared gateway)
           </div>
         </div>
       </div>
 
-      {stats && (
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
-            <div className="text-xs text-[#888] uppercase tracking-wide mb-1">Total Markets</div>
-            <div className="text-xl font-bold text-white">
-              {stats.totalMarkets?.toLocaleString() || 0}
-            </div>
-          </div>
-          <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
-            <div className="text-xs text-[#888] uppercase tracking-wide mb-1">Active Markets</div>
-            <div className="text-xl font-bold text-emerald-500">
-              {stats.activeMarkets?.toLocaleString() || 0}
-            </div>
-          </div>
-          <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
-            <div className="text-xs text-[#888] uppercase tracking-wide mb-1">With Prices</div>
-            <div className="text-xl font-bold text-blue-500">
-              {stats.marketsWithPrices?.toLocaleString() || 0}
-            </div>
-          </div>
-          <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
-            <div className="text-xs text-[#888] uppercase tracking-wide mb-1">Total Volume</div>
-            <div className="text-lg font-semibold text-white">
-              ${stats.totalVolume ? (stats.totalVolume / 1e6).toFixed(1) + "M" : "0"}
-            </div>
+      {(lastIngestError || lastHealError || inBackoff) && (
+        <div className="mt-3 flex items-start gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-amber-200/90 space-y-1">
+            {inBackoff && (
+              <p>
+                Embedding healer in backoff until{" "}
+                {formatTime(status?.reembed?.backoffUntil)}
+              </p>
+            )}
+            {lastHealError && <p>Last heal error: {lastHealError}</p>}
+            {lastIngestError && <p>Last ingest error: {lastIngestError}</p>}
           </div>
         </div>
       )}
+
+      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
+          <div className="text-xs text-[#888] uppercase tracking-wide mb-1">
+            Markets
+          </div>
+          <div className="text-xl font-bold text-white">
+            {(status?.totals.markets ?? stats?.totalMarkets ?? 0).toLocaleString()}
+          </div>
+        </div>
+        <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
+          <div className="text-xs text-[#888] uppercase tracking-wide mb-1">
+            Embedded OK
+          </div>
+          <div className="text-xl font-bold text-emerald-500">
+            {(embeddedOk ?? 0).toLocaleString()}
+          </div>
+        </div>
+        <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
+          <div className="text-xs text-[#888] uppercase tracking-wide mb-1">
+            Pending re-embed
+          </div>
+          <div className="text-xl font-bold text-amber-400">
+            {(pending ?? 0).toLocaleString()}
+          </div>
+        </div>
+        <div className="p-3 bg-[#111] border border-[#1a1a1a] rounded-lg">
+          <div className="text-xs text-[#888] uppercase tracking-wide mb-1">
+            Embed budget (day)
+          </div>
+          <div className="text-lg font-semibold text-white">
+            {status?.reembed?.rateLimit
+              ? `${status.reembed.rateLimit.perDay.used}/${status.reembed.rateLimit.perDay.limit}`
+              : "—"}
+          </div>
+        </div>
+      </div>
 
       <div className="mt-4 p-4 bg-[#111] border border-[#1a1a1a] rounded-lg">
         <div className="flex items-start gap-3">
           <Clock className="w-4 h-4 text-[#888] mt-0.5 flex-shrink-0" />
           <div className="text-xs text-[#888] space-y-1">
             <p>
-              <strong className="text-white">Schedule:</strong> Markets are automatically ingested every 2 hours (new markets) and every 6 hours (full refresh).
+              <strong className="text-white">Ingest last run:</strong>{" "}
+              {formatTime(status?.ingest?.lastRunAt)} (offset{" "}
+              {status?.ingest?.gammaOffset ?? 0})
             </p>
             <p>
-              <strong className="text-white">Process:</strong> Up to 1,000 markets per batch. Embeddings are generated asynchronously for optimal performance.
+              <strong className="text-white">Heal last run:</strong>{" "}
+              {formatTime(status?.reembed?.lastRunAt)}
+              {status?.reembed?.lastResult &&
+              typeof status.reembed.lastResult === "object" &&
+              status.reembed.lastResult !== null &&
+              "embedded" in (status.reembed.lastResult as object)
+                ? ` — last batch embedded ${
+                    (status.reembed.lastResult as { embedded?: number }).embedded ?? 0
+                  }`
+                : ""}
+            </p>
+            <p>
+              <strong className="text-white">Search:</strong> keyword fallback
+              covers markets still pending re-embed so retrieval never silently
+              drops them.
+            </p>
+            <p>
+              Model {status?.embedModel ?? "…"} ·{" "}
+              {status?.expectedDimensions ?? 3072}-d
             </p>
           </div>
         </div>

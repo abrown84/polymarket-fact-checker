@@ -310,3 +310,162 @@ export const getAllNewsArticles = query({
     return articles;
   },
 });
+
+export const getIngestJob = query({
+  args: { job: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("ingestJobs")
+      .withIndex("by_job", (q) => q.eq("job", args.job))
+      .first();
+  },
+});
+
+/**
+ * Paginate markets for the re-embed healer (stable ascending creation order).
+ */
+export const listMarketsPage = query({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+    limit: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit, 1), 200);
+    const result = await ctx.db.query("markets").order("asc").paginate({
+      numItems: limit,
+      cursor: args.cursor ?? null,
+    });
+    return {
+      page: result.page,
+      continueCursor: result.continueCursor,
+      isDone: result.isDone,
+    };
+  },
+});
+
+/**
+ * Admin / UI status: embedded vs pending, last runs, errors, rate budget.
+ * Uses current One Gateway embed defaults when env is unset (3072 / gemini-embedding-2).
+ */
+export const getIngestStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const embedModel =
+      process.env.ONE_GATEWAY_EMBED_MODEL ||
+      process.env.GEMINI_EMBED_MODEL ||
+      "gemini-embedding-2";
+    const dimsRaw =
+      process.env.ONE_GATEWAY_EMBED_DIMENSIONS ||
+      process.env.GEMINI_EMBED_DIMENSIONS;
+    const expectedDims = dimsRaw ? Number.parseInt(dimsRaw, 10) : 3072;
+    const dims =
+      Number.isFinite(expectedDims) && expectedDims > 0 ? expectedDims : 3072;
+
+    const markets = await ctx.db.query("markets").collect();
+    const embeddings = await ctx.db.query("embeddings").collect();
+    const byMarket = new Map(
+      embeddings.map((e) => [e.polymarketMarketId, e] as const)
+    );
+
+    let embeddedOk = 0;
+    let missing = 0;
+    let mismatched = 0;
+    for (const market of markets) {
+      const emb = byMarket.get(market.polymarketMarketId);
+      if (!emb || !Array.isArray(emb.vector) || emb.vector.length === 0) {
+        missing++;
+        continue;
+      }
+      if (emb.model !== embedModel || emb.vector.length !== dims) {
+        mismatched++;
+        continue;
+      }
+      embeddedOk++;
+    }
+
+    const ingestJob = await ctx.db
+      .query("ingestJobs")
+      .withIndex("by_job", (q) => q.eq("job", "market_ingest"))
+      .first();
+    const reembedJob = await ctx.db
+      .query("ingestJobs")
+      .withIndex("by_job", (q) => q.eq("job", "reembed"))
+      .first();
+
+    const now = Date.now();
+    const minuteLimitRaw = process.env.HEAL_MINUTE_CALL_BUDGET;
+    const dayLimitRaw = process.env.HEAL_DAILY_CALL_BUDGET;
+    const minuteLimitParsed = minuteLimitRaw
+      ? Number.parseInt(minuteLimitRaw, 10)
+      : NaN;
+    const dayLimitParsed = dayLimitRaw
+      ? Number.parseInt(dayLimitRaw, 10)
+      : NaN;
+    const minuteLimit =
+      Number.isFinite(minuteLimitParsed) && minuteLimitParsed > 0
+        ? minuteLimitParsed
+        : 4;
+    const dayLimit =
+      Number.isFinite(dayLimitParsed) && dayLimitParsed > 0
+        ? dayLimitParsed
+        : 150;
+
+    const minuteBudget = reembedJob
+      ? {
+          used:
+            reembedJob.embedsMinuteStartedAt &&
+            now - reembedJob.embedsMinuteStartedAt < 60_000
+              ? reembedJob.embedsThisMinute ?? 0
+              : 0,
+          limit: minuteLimit,
+        }
+      : { used: 0, limit: minuteLimit };
+    const dayBudget = reembedJob
+      ? {
+          used:
+            reembedJob.embedsDayStartedAt &&
+            now - reembedJob.embedsDayStartedAt < 24 * 60 * 60 * 1000
+              ? reembedJob.embedsToday ?? 0
+              : 0,
+          limit: dayLimit,
+        }
+      : { used: 0, limit: dayLimit };
+
+    return {
+      embedModel,
+      expectedDimensions: dims,
+      totals: {
+        markets: markets.length,
+        embeddings: embeddings.length,
+        embeddedOk,
+        pending: missing + mismatched,
+        missing,
+        mismatched,
+      },
+      ingest: ingestJob
+        ? {
+            gammaOffset: ingestJob.gammaOffset ?? 0,
+            lastRunAt: ingestJob.lastRunAt ?? null,
+            lastSuccessAt: ingestJob.lastSuccessAt ?? null,
+            lastError: ingestJob.lastError ?? null,
+            lastErrorAt: ingestJob.lastErrorAt ?? null,
+            lastResult: ingestJob.lastResult ?? null,
+          }
+        : null,
+      reembed: reembedJob
+        ? {
+            reembedCursor: reembedJob.reembedCursor ?? null,
+            lastRunAt: reembedJob.lastRunAt ?? null,
+            lastSuccessAt: reembedJob.lastSuccessAt ?? null,
+            lastError: reembedJob.lastError ?? null,
+            lastErrorAt: reembedJob.lastErrorAt ?? null,
+            lastResult: reembedJob.lastResult ?? null,
+            backoffUntil: reembedJob.backoffUntil ?? null,
+            consecutiveErrors: reembedJob.consecutiveErrors ?? 0,
+            rateLimit: { perMinute: minuteBudget, perDay: dayBudget },
+          }
+        : null,
+      updatedAt: now,
+    };
+  },
+});

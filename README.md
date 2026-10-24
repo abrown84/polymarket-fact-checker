@@ -84,15 +84,23 @@ Legacy aliases still work: `OPENCLAW_GATEWAY_TOKEN`, `OPENCLAW_BASE_URL`, `OPENC
 3. Set `ONE_GATEWAY_TOKEN` only when the gateway requires `Authorization: Bearer …`.
 4. Do **not** point Convex at `one-gateway/serve`’s `/api/chat` — use `/v1/chat/completions` and `/v1/embeddings`.
 
-#### Embedding re-index (important)
+#### Embeddings (automatic — no manual re-index)
 
-One Gateway Gemini embeddings are **3072** dimensions. Older OpenAI `text-embedding-3-small` vectors were **1536-d**. Cosine similarity **skips** mismatched vectors (those markets will not appear in search). After switching, re-run ingestion:
+One Gateway Gemini embeddings are **3072** dimensions. Scheduled jobs handle everything:
+
+| Cron | Interval | What it does |
+|---|---|---|
+| `incremental-market-ingest` | 15 min | Fetches new/updated Polymarket markets (offset crawl + recent `updatedAt` page) |
+| `heal-embeddings` | 1 min | Batch-embeds missing/mismatched vectors via One Gateway (~8 texts/call; default ≤4 calls/min, ≤150/day — shared gateway) |
+
+Search uses **keyword fallback** for markets not yet re-embedded, so retrieval does not silently drop them. Status: `getIngestStatus` (UI Market Ingestion panel).
+
+Optional manual kick (not required):
 
 ```bash
-npx convex run actions/ingestMarkets:ingestMarkets '{"cursor":null}'
+npx convex run actions/marketMaintenance:incrementalIngest
+npx convex run actions/marketMaintenance:healEmbeddings
 ```
-
-`ingestMarkets` also re-embeds when stored `model` or vector length does not match the current gateway config.
 
 ### 4. Generate Convex API Types
 
@@ -112,9 +120,13 @@ npm run dev:client
 
 App: `http://localhost:5173`.
 
-### 6. Initial Market Ingestion
+### 6. Market ingestion
 
-Run `ingestMarkets` with `{ cursor: null }` from the Convex dashboard (or CLI). The scheduler continues every 6 hours.
+No manual step. After deploy, crons crawl Polymarket and heal embeddings automatically. Watch progress via the Market Ingestion panel or:
+
+```bash
+npx convex run queries:getIngestStatus
+```
 
 ## Project Structure
 
@@ -123,16 +135,15 @@ polymarket-fact-checker/
 ├── client/                 # React frontend
 ├── convex/                 # Convex backend
 │   ├── actions/
-│   │   ├── oneGateway.ts   # Chat + embeddings via One Gateway
+│   │   ├── oneGateway.ts        # Chat + embeddings via One Gateway
+│   │   ├── marketMaintenance.ts # Scheduled ingest + healEmbeddings
 │   │   ├── aiEmbed.ts
-│   │   ├── aiParseClaim.ts
-│   │   ├── aiRerank.ts
 │   │   ├── factCheck.ts
 │   │   └── ...
 │   ├── mutations.ts
-│   ├── queries.ts
-│   ├── schema.ts
-│   └── cron.ts
+│   ├── queries.ts               # includes getIngestStatus
+│   ├── schema.ts                # ingestJobs table
+│   └── cron.ts                  # 15m ingest + 1m heal
 ├── .env.example
 ├── package.json
 └── README.md
@@ -159,7 +170,7 @@ Installs `client/` dependencies if needed, then runs the Vite production build.
 2. Set Convex env vars (`ONE_GATEWAY_URL` recommended; `ONE_GATEWAY_TOKEN` if required)
 3. Set Vercel env: `VITE_CONVEX_URL`
 4. Deploy frontend (GitHub → Vercel or `cd client && vercel deploy`)
-5. Re-run market ingestion if embeddings are not already 3072-d
+5. Wait for `heal-embeddings` cron (or kick `healEmbeddings` once) if pending count is high
 
 `vercel.json` already installs root + client deps and builds the client.
 
@@ -173,7 +184,7 @@ npx convex run actions/testConnections:testConnections
 
 1. Brute-force similarity over all embeddings (consider ANN for >20k markets).
 2. Binary markets optimized; multi-outcome needs more work.
-3. Embedding model/dimension changes require re-ingestion (1536-d leftovers are skipped until then).
+3. Embedding heal is rate-limited (default **150** gateway embed calls/day via `HEAL_DAILY_CALL_BUDGET`, **4**/min via `HEAL_MINUTE_CALL_BUDGET`) so other apps sharing the gateway’s ~500/day global cap are not starved; large backlogs drain gradually with keyword fallback.
 4. Self-hosted gateways must be **public HTTPS** — local `127.0.0.1` only works for local Convex/dev.
 
 ## License
