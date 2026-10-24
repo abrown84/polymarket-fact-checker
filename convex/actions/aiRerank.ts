@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { z } from "zod";
 import { ParsedClaimSchema } from "../utils";
-import { geminiChatJson } from "./gemini";
+import { gatewayChatJson } from "./oneGateway";
 
 const RerankResultSchema = z.object({
   ranked: z.array(
@@ -21,7 +21,7 @@ const RerankResultSchema = z.object({
 export type RerankResult = z.infer<typeof RerankResultSchema>;
 
 /**
- * Rerank candidates using Gemini to compare claim to market resolution meaning
+ * Rerank candidates using One Gateway to compare claim to market resolution meaning
  */
 export const aiRerank = action({
   args: {
@@ -51,7 +51,7 @@ export const aiRerank = action({
     }
 
     try {
-      const parsed = await geminiChatJson({
+      const parsed = await gatewayChatJson({
         temperature: 0.4,
         system: `You are a market matcher that scores how well prediction markets match a claim.
 
@@ -94,7 +94,7 @@ ${JSON.stringify(
       const validated = RerankResultSchema.parse(parsed);
       return validated;
     } catch (error) {
-      console.error("Gemini rerank failed, using similarity fallback:", error);
+      console.error("One Gateway rerank failed, using similarity fallback:", error);
       return {
         ranked: args.candidates.map((c) => ({
           polymarketMarketId: c.polymarketMarketId,

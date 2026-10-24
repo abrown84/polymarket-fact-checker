@@ -2,13 +2,14 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-/** Chat: gemini-3.8-flash (https://ai.google.dev/gemini-api/docs/models) */
-export const DEFAULT_GEMINI_CHAT_MODEL = "gemini-3.8-flash";
-
 /**
- * Embeddings: gemini-embedding-2 is the current recommended model
- * (https://ai.google.dev/gemini-api/docs/embeddings). Default output dim is 3072;
- * OpenAI text-embedding-3-small was 1536 — re-index after switching.
+ * Embeddings only — chat goes through One Gateway (see oneGateway.ts).
+ * one-gateway does not support embeddings, so we keep Google Gemini here.
+ *
+ * Model: gemini-embedding-2
+ * https://ai.google.dev/gemini-api/docs/embeddings
+ * Default output dim is 3072; OpenAI text-embedding-3-small was 1536 —
+ * re-index after switching.
  */
 export const DEFAULT_GEMINI_EMBED_MODEL = "gemini-embedding-2";
 
@@ -17,13 +18,9 @@ export type EmbedRole = "query" | "document";
 export function requireGeminiApiKey(): string {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("Missing GEMINI_API_KEY env var");
+    throw new Error("Missing GEMINI_API_KEY env var (required for embeddings)");
   }
   return apiKey;
-}
-
-export function getGeminiChatModel(): string {
-  return process.env.GEMINI_CHAT_MODEL || DEFAULT_GEMINI_CHAT_MODEL;
 }
 
 export function getGeminiEmbedModel(): string {
@@ -62,42 +59,6 @@ export function formatEmbedInput(
   return `task: fact checking | query: ${text}`;
 }
 
-export async function geminiChatText(opts: {
-  system?: string;
-  user: string;
-  temperature?: number;
-  json?: boolean;
-  maxOutputTokens?: number;
-}): Promise<string> {
-  const ai = getGeminiClient();
-  const response = await ai.models.generateContent({
-    model: getGeminiChatModel(),
-    contents: opts.user,
-    config: {
-      systemInstruction: opts.system,
-      temperature: opts.temperature ?? 0.4,
-      maxOutputTokens: opts.maxOutputTokens,
-      ...(opts.json ? { responseMimeType: "application/json" } : {}),
-    },
-  });
-
-  const text = response.text;
-  if (!text) {
-    throw new Error("Empty Gemini chat response");
-  }
-  return text;
-}
-
-export async function geminiChatJson(opts: {
-  system?: string;
-  user: string;
-  temperature?: number;
-  maxOutputTokens?: number;
-}): Promise<unknown> {
-  const text = await geminiChatText({ ...opts, json: true });
-  return JSON.parse(text);
-}
-
 export async function geminiEmbed(
   text: string,
   opts?: { role?: EmbedRole; title?: string }
@@ -120,18 +81,6 @@ export async function geminiEmbed(
     throw new Error("Empty Gemini embedding response");
   }
   return values;
-}
-
-export function getGeminiChatConfig(): {
-  provider: "gemini";
-  apiKey: string;
-  model: string;
-} {
-  return {
-    provider: "gemini",
-    apiKey: requireGeminiApiKey(),
-    model: getGeminiChatModel(),
-  };
 }
 
 export function getGeminiEmbedConfig(): {

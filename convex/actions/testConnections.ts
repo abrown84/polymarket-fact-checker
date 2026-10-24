@@ -7,10 +7,11 @@
 
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
-import { geminiChatText, geminiEmbed, getGeminiChatModel, getGeminiEmbedModel } from "./gemini";
+import { geminiEmbed, getGeminiEmbedModel } from "./gemini";
+import { gatewayChatText, getChatModel } from "./oneGateway";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash";
+const ONE_GATEWAY_TOKEN = process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
 const GEMINI_EMBED_MODEL = process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2";
 const POLYMARKET_GAMMA_BASE = process.env.POLYMARKET_GAMMA_BASE || "https://gamma-api.polymarket.com";
 const POLYMARKET_CLOB_BASE = process.env.POLYMARKET_CLOB_BASE || "https://clob.polymarket.com";
@@ -199,30 +200,30 @@ async function testGeminiEmbeddings(): Promise<TestResult> {
 }
 
 /**
- * Test Gemini Chat Completions API
+ * Test One Gateway Chat Completions API
  */
-async function testGeminiChat(): Promise<TestResult> {
+async function testOneGatewayChat(): Promise<TestResult> {
   const startTime = Date.now();
-  if (!GEMINI_API_KEY) {
+  if (!ONE_GATEWAY_TOKEN) {
     return {
-      name: "Gemini Chat API",
+      name: "One Gateway Chat API",
       success: false,
-      error: "GEMINI_API_KEY environment variable not set",
+      error: "ONE_GATEWAY_TOKEN (or OPENCLAW_GATEWAY_TOKEN) environment variable not set",
       duration: Date.now() - startTime,
     };
   }
 
   try {
-    const content = await geminiChatText({
+    const content = await gatewayChatText({
       user: "Say 'test successful' and nothing else.",
       temperature: 0,
-      maxOutputTokens: 16,
+      maxTokens: 16,
     });
     return {
-      name: "Gemini Chat API",
+      name: "One Gateway Chat API",
       success: true,
       details: {
-        model: getGeminiChatModel(),
+        model: getChatModel(),
         response: content,
         hasResponse: !!content,
       },
@@ -230,7 +231,7 @@ async function testGeminiChat(): Promise<TestResult> {
     };
   } catch (error: any) {
     return {
-      name: "Gemini Chat API",
+      name: "One Gateway Chat API",
       success: false,
       error: error.message || String(error),
       duration: Date.now() - startTime,
@@ -651,8 +652,8 @@ export const testConnections = action({
     console.log(`${embedResult.success ? "✓" : "✗"} ${embedResult.name}: ${embedResult.success ? "SUCCESS" : embedResult.error}`);
 
     // Test 4: OpenRouter Chat
-    console.log("\nTesting Gemini Chat API...");
-    const chatResult = await testGeminiChat();
+    console.log("\nTesting One Gateway Chat API...");
+    const chatResult = await testOneGatewayChat();
     results.push(chatResult);
     console.log(`${chatResult.success ? "✓" : "✗"} ${chatResult.name}: ${chatResult.success ? "SUCCESS" : chatResult.error}`);
 

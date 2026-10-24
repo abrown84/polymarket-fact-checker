@@ -4,7 +4,7 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { ParsedClaim } from "../utils";
-import { geminiChatJson } from "./gemini";
+import { gatewayChatJson } from "./oneGateway";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -286,7 +286,7 @@ export const deepResearch = action({
     // Generate insights using AI
     let insights: string[] = [];
     try {
-      const insightsParsed = await geminiChatJson({
+      const insightsParsed = await gatewayChatJson({
         temperature: 0.7,
         system: `You are a market intelligence analyst. Generate 3-5 key insights about this prediction market based on the provided data. Focus on actionable insights, trends, and important factors. Output ONLY valid JSON: { "insights": string[] }`,
         user: `Market: ${market.title}

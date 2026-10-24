@@ -5,7 +5,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { clamp01, ParsedClaim, parseDateFromQuery } from "../utils";
 
-import { geminiChatJson } from "./gemini";
+import { gatewayChatJson } from "./oneGateway";
 
 // Type-safe internal API references
 const internalApi = internal as {
@@ -502,7 +502,7 @@ export const factCheck = action({
             matchScore: (m.matchScore * 100).toFixed(0) + "%",
           }));
 
-        const summaryParsed = await geminiChatJson({
+        const summaryParsed = await gatewayChatJson({
           temperature: 0.6,
           system: `You are an expert fact-checker that provides helpful answers even when markets don't perfectly match the question.
 
@@ -584,7 +584,7 @@ Provide a helpful answer to the question using this market data, news context, s
             reasons: m.reasons || [],
           }));
 
-        const summaryParsed = await geminiChatJson({
+        const summaryParsed = await gatewayChatJson({
           temperature: 0.5,
           system: `You are an expert fact-checker that answers questions using prediction market data from Polymarket and relevant news articles.
 

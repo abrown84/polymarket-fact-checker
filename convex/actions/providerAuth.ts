@@ -7,7 +7,7 @@ import { ActionCtx, action } from "../_generated/server";
 import { v } from "convex/values";
 import { api } from "../_generated/api";
 
-type Provider = "gemini" | "openai" | "openrouter" | "openclaw-bridge";
+type Provider = "one-gateway" | "gemini" | "openai" | "openrouter" | "openclaw-bridge";
 
 type PiAuthEntry = { type?: string; key?: string; accessToken?: string };
 type PiAuth = Record<string, PiAuthEntry>;
@@ -29,20 +29,6 @@ function keyFromPiAuth(provider: Provider): string | null {
   if (entry.type === "api_key" && entry.key) return entry.key;
   if (entry.type === "oauth" && entry.accessToken) return entry.accessToken;
   return entry.key || null;
-}
-
-function resolveProvider(): Provider {
-  const explicit = (process.env.LLM_PROVIDER || "").toLowerCase();
-  if (explicit === "gemini" || explicit === "google") return "gemini";
-  if (explicit === "openai" || explicit === "openrouter") return explicit;
-  if (explicit === "openclaw-bridge" || explicit === "openclaw") return "openclaw-bridge";
-
-  // Default: Google Gemini (GEMINI_API_KEY)
-  if (process.env.GEMINI_API_KEY) return "gemini";
-
-  const hasOpenRouter = !!(process.env.OPENROUTER_API_KEY || keyFromPiAuth("openrouter"));
-  if (hasOpenRouter) return "openrouter";
-  return "gemini";
 }
 
 function randomId(prefix: string) {
@@ -165,12 +151,62 @@ export async function refreshOAuthToken(
   }
 }
 
+function resolveProvider(): Provider {
+  const explicit = (process.env.LLM_PROVIDER || "").toLowerCase();
+  if (
+    explicit === "one-gateway" ||
+    explicit === "onegateway" ||
+    explicit === "gateway"
+  ) {
+    return "one-gateway";
+  }
+  if (explicit === "gemini" || explicit === "google") return "gemini";
+  if (explicit === "openai" || explicit === "openrouter") return explicit;
+  if (explicit === "openclaw-bridge" || explicit === "openclaw") return "openclaw-bridge";
+
+  // Default: One Gateway when token is present
+  if (process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN) {
+    return "one-gateway";
+  }
+
+  if (process.env.GEMINI_API_KEY) return "gemini";
+
+  const hasOpenRouter = !!(process.env.OPENROUTER_API_KEY || keyFromPiAuth("openrouter"));
+  if (hasOpenRouter) return "openrouter";
+  return "one-gateway";
+}
+
 /**
- * Chat/embed config. Primary path is Gemini via @google/genai (see gemini.ts).
- * Legacy OpenAI-compatible URLs remain only for explicit LLM_PROVIDER overrides.
+ * Chat config. Primary path is One Gateway (OpenAI-compatible; see oneGateway.ts).
+ * Embeddings stay on Gemini (one-gateway has no embeddings API).
  */
 export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
   const provider = resolveProvider();
+
+  if (provider === "one-gateway" || provider === "openclaw-bridge") {
+    const apiKey =
+      process.env.ONE_GATEWAY_TOKEN || process.env.OPENCLAW_GATEWAY_TOKEN;
+    if (!apiKey) {
+      throw new Error(
+        "Missing ONE_GATEWAY_TOKEN (or OPENCLAW_GATEWAY_TOKEN) env var"
+      );
+    }
+    const base = (
+      process.env.ONE_GATEWAY_URL ||
+      process.env.OPENCLAW_BASE_URL ||
+      "http://127.0.0.1:18789"
+    ).replace(/\/+$/, "");
+    return {
+      provider: provider === "openclaw-bridge" ? "openclaw-bridge" : "one-gateway",
+      apiUrl: `${base}/v1/chat/completions`,
+      apiKey,
+      model:
+        process.env.ONE_GATEWAY_MODEL ||
+        process.env.GEMINI_CHAT_MODEL ||
+        process.env.OPENCLAW_CHAT_MODEL ||
+        "gemini-3.8-flash",
+    };
+  }
 
   if (provider === "gemini") {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -180,17 +216,6 @@ export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provide
       apiUrl: "https://generativelanguage.googleapis.com/v1beta",
       apiKey,
       model: process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash",
-    };
-  }
-
-  if (provider === "openclaw-bridge") {
-    const apiKey = process.env.OPENCLAW_GATEWAY_TOKEN;
-    if (!apiKey) throw new Error("Missing OPENCLAW_GATEWAY_TOKEN env var");
-    return {
-      provider,
-      apiUrl: (process.env.OPENCLAW_BASE_URL || "http://127.0.0.1:18789") + "/v1/chat/completions",
-      apiKey,
-      model: process.env.OPENCLAW_CHAT_MODEL || "openclaw",
     };
   }
 
@@ -215,38 +240,15 @@ export async function getChatConfig(ctx: ActionCtx): Promise<{ provider: Provide
   };
 }
 
-export async function getEmbedConfig(ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
-  const provider = resolveProvider();
-
-  if (provider === "gemini") {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("Missing GEMINI_API_KEY env var");
-    return {
-      provider,
-      apiUrl: "https://generativelanguage.googleapis.com/v1beta",
-      apiKey,
-      model: process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2",
-    };
-  }
-
-  if (provider === "openrouter") {
-    const apiKey = await resolveAccessToken(ctx, "openrouter");
-    if (!apiKey) throw new Error("Missing OpenRouter credential (OAuth/API key)");
-    return {
-      provider,
-      apiUrl: "https://openrouter.ai/api/v1/embeddings",
-      apiKey,
-      model: process.env.OPENROUTER_EMBED_MODEL || "openai/text-embedding-3-small",
-    };
-  }
-
-  const apiKey = await resolveAccessToken(ctx, "openai");
-  if (!apiKey) throw new Error("Missing OpenAI credential (OAuth/API key)");
+export async function getEmbedConfig(_ctx: ActionCtx): Promise<{ provider: Provider; apiUrl: string; apiKey: string; model: string }> {
+  // Embeddings always use Gemini — one-gateway does not expose embeddings.
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("Missing GEMINI_API_KEY env var (required for embeddings)");
   return {
-    provider,
-    apiUrl: "https://api.openai.com/v1/embeddings",
+    provider: "gemini",
+    apiUrl: "https://generativelanguage.googleapis.com/v1beta",
     apiKey,
-    model: process.env.OPENAI_EMBED_MODEL || "text-embedding-3-small",
+    model: process.env.GEMINI_EMBED_MODEL || "gemini-embedding-2",
   };
 }
 

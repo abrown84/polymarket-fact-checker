@@ -4,11 +4,11 @@ import { action } from "../_generated/server";
 import { v } from "convex/values";
 import { z } from "zod";
 import { ParsedClaimSchema } from "../utils";
-import { geminiChatJson } from "./gemini";
+import { gatewayChatJson } from "./oneGateway";
 
 /**
- * Parse a question into a structured claim using Gemini
- * Falls back to simple heuristics if Gemini fails
+ * Parse a question into a structured claim using One Gateway
+ * Falls back to simple heuristics if the gateway call fails
  */
 export const aiParseClaim = action({
   args: { question: v.string() },
@@ -19,7 +19,7 @@ export const aiParseClaim = action({
     }
 
     try {
-      const parsed = await geminiChatJson({
+      const parsed = await gatewayChatJson({
         temperature: 0.3,
         system: `You are a claim parser that converts questions into structured, checkable claims for prediction markets.
 
@@ -47,7 +47,7 @@ Rules:
       const validated = ParsedClaimSchema.parse(parsed);
       return validated;
     } catch (error) {
-      console.error("Gemini parseClaim failed, using fallback:", error);
+      console.error("One Gateway parseClaim failed, using fallback:", error);
       return fallbackParseClaim(question);
     }
   },
